@@ -1,0 +1,195 @@
+// Personal status bar built on top of the Helium shell framework.
+// Adjust `width` here to match the `.size(w, h)` call in src/main.rs.
+
+component Divider inherits Rectangle {
+    width: 1px;
+    height: 22px;
+    border-width: 1px;
+    border-color: #222;
+}
+
+component WorkspacePill inherits Rectangle {
+    in property <string> label: "";
+    in property <bool> active: false;
+    in property <bool> occupied: false;
+    callback clicked;
+
+    width: 26px;
+    height: 24px;
+    background: active ? #76b900 : #1f1f1f;
+    border-width: 1px;
+    border-color: active ? #76b900 : #333;
+
+    Text {
+        text: label;
+        color: active ? #0a0a0a : occupied ? #aaa : #555;
+        font-size: 11px;
+        font-family: "Space Mono";
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+
+    Rectangle {
+        visible: occupied && !active;
+        width: 3px;
+        height: 3px;
+        border-radius: 1.5px;
+        background: #76b900;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - 6px;
+    }
+
+    TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+component StatChip inherits Rectangle {
+    in property <string> icon: "";
+    in property <string> value: "";
+    in property <bool> highlight: false;
+
+    background: #141414;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+
+        Text {
+            text: icon;
+            color: highlight ? #76b900 : #666;
+            font-size: 13px;
+            font-family: "Symbols Nerd Font";
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: value;
+            color: highlight ? #d4d4d4 : #666;
+            font-size: 12px;
+            font-family: "Space Grotesk";
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component Bar inherits Window {
+    width: 1346px;
+    height: 36px;
+    background: transparent;
+
+    in property <int> active_workspace: 1;
+
+    in property <string> workspace_1: "1";
+    in property <string> workspace_2: "2";
+    in property <string> workspace_3: "3";
+    in property <string> workspace_4: "4";
+    in property <string> workspace_5: "5";
+    in property <bool> occupied_1: false;
+    in property <bool> occupied_2: false;
+    in property <bool> occupied_3: false;
+    in property <bool> occupied_4: false;
+    in property <bool> occupied_5: false;
+
+    in property <string> net_text: "…";
+    in property <bool> net_connected: false;
+    in property <string> cpu_text: "…";
+    in property <string> ram_text: "…";
+    in property <string> bat_text: "…";
+    in property <bool> bat_charging: false;
+    in property <string> vol_text: "…";
+    in property <bool> vol_muted: false;
+    in property <string> clock_text: "";
+
+    callback workspace_clicked(int);
+
+    Rectangle {
+        background: #0d0d0d;
+        border-radius: self.height / 2;
+        clip: true;
+
+        // --- Workspaces (pinned left) ---------------------------------------
+        Rectangle {
+            x: 0;
+            width: 200px;
+            height: 100%;
+            background: #141414;
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 8px;
+                padding-bottom: 8px;
+                spacing: 6px;
+
+                Text {
+                    text: "\u{F00A}";
+                    color: #555;
+                    font-size: 13px;
+                    font-family: "Symbols Nerd Font";
+                    vertical-alignment: center;
+                }
+
+                WorkspacePill { label: workspace_1; active: active_workspace == 1; occupied: occupied_1; clicked => { workspace_clicked(1); } }
+                WorkspacePill { label: workspace_2; active: active_workspace == 2; occupied: occupied_2; clicked => { workspace_clicked(2); } }
+                WorkspacePill { label: workspace_3; active: active_workspace == 3; occupied: occupied_3; clicked => { workspace_clicked(3); } }
+                WorkspacePill { label: workspace_4; active: active_workspace == 4; occupied: occupied_4; clicked => { workspace_clicked(4); } }
+                WorkspacePill { label: workspace_5; active: active_workspace == 5; occupied: occupied_5; clicked => { workspace_clicked(5); } }
+            }
+        }
+
+        // --- Date / time — geometrically centered on the whole bar, not on
+        // whatever space happens to be left between the other two groups. ---
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            width: 170px;
+            height: 100%;
+            background: #141414;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 8px;
+
+                Text {
+                    text: "\u{F017}";
+                    color: #76b900;
+                    font-size: 13px;
+                    font-family: "Symbols Nerd Font";
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: clock_text;
+                    color: #76b900;
+                    font-size: 13px;
+                    font-family: "Space Mono";
+                    letter-spacing: 1px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // --- Network / CPU / RAM / battery / volume (pinned right) ----------
+        Rectangle {
+            x: parent.width - self.width;
+            width: 454px;
+            height: 100%;
+
+            HorizontalLayout {
+                padding: 0;
+                spacing: 0;
+
+                StatChip { width: 190px; icon: "\u{F1EB}"; value: net_text; highlight: net_connected; }
+                Divider { }
+                StatChip { width: 64px; icon: "\u{F2DB}"; value: cpu_text; highlight: true; }
+                Divider { }
+                StatChip { width: 64px; icon: "\u{F0A0}"; value: ram_text; highlight: true; }
+                Divider { }
+                StatChip { width: 64px; icon: bat_charging ? "\u{F0E7}" : "\u{F240}"; value: bat_text; highlight: true; }
+                Divider { }
+                StatChip { width: 72px; icon: vol_muted ? "\u{F026}" : "\u{F028}"; value: vol_text; highlight: !vol_muted; }
+            }
+        }
+    }
+}

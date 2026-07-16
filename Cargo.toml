@@ -1,0 +1,12 @@
+[package]
+name = "helium-shell"
+version = "0.1.0"
+edition = "2021"
+description = "A personal Wayland status bar built with the Helium shell framework"
+license = "MIT"
+
+[dependencies]
+helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
+zbus = "4"
+zvariant = "4"
+tokio = { version = "1", features = ["rt"] }
