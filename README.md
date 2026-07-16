@@ -1,5 +1,10 @@
 # helium-shell
 
+[![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust)](Cargo.toml)
+[![Wayland](https://img.shields.io/badge/wayland-layer--shell-blue?logo=wayland)](https://github.com/zepyxunderscore/helium-wsl)
+[![Hyprland](https://img.shields.io/badge/compositor-Hyprland-00b6b6)](https://hyprland.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 A personal Wayland status bar built on top of [Helium](https://github.com/zepyxunderscore/helium-wsl),
 which wraps `layer-shika` to give you a clean Rust + Slint API for layer-shell
 surfaces (compositor auto-detection, D-Bus services, timers, etc). Renders as
