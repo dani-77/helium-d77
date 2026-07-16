@@ -1,5 +1,6 @@
 // Personal status bar built on top of the Helium shell framework.
-// Adjust `width` here to match the `.size(w, h)` call in src/main.rs.
+// `bar_width` is set from src/main.rs at startup, derived from the actual
+// monitor width — no need to hand-edit it for a different screen.
 
 component Divider inherits Rectangle {
     width: 1px;
@@ -75,7 +76,8 @@ component StatChip inherits Rectangle {
 }
 
 export component Bar inherits Window {
-    width: 1346px;
+    in property <length> bar_width: 1346px;
+    width: bar_width;
     height: 36px;
     background: transparent;
 

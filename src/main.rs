@@ -9,15 +9,46 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 const WORKSPACE_SLOTS: usize = 5;
+const MARGIN: u32 = 10;
+const FALLBACK_MONITOR_WIDTH: u32 = 1366;
+
+/// Width of the primary monitor, so the bar's size is derived from the
+/// actual screen instead of a value hardcoded for one machine.
+///
+/// This matters beyond cosmetics: Hyprland doesn't cleanly reconcile a
+/// requested layer-surface width that's *larger* than the monitor with
+/// `Top+Left+Right` anchoring — instead of clamping, it can offset the
+/// surface so part of it renders off-screen. Deriving the width from the
+/// real monitor guarantees the requested size and the anchor-stretched size
+/// always agree, on any screen.
+fn primary_monitor_width() -> u32 {
+    compositors::detect()
+        .ok()
+        .and_then(|c| {
+            let monitors = c.monitors();
+            monitors
+                .iter()
+                .find(|m| m.primary)
+                .or_else(|| monitors.first())
+                .map(|m| m.width)
+        })
+        .unwrap_or(FALLBACK_MONITOR_WIDTH)
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let bar_width = primary_monitor_width() - 2 * MARGIN;
+
     let mut shell = Helium::from_file("ui/bar.slint")
         .surface("Bar")
-        .size(1346, 36)
+        .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
-        .margin(10, 10, 0, 10)
+        .margin(MARGIN as i32, MARGIN as i32, 0, MARGIN as i32)
         .layer(Layer::Top)
         .build()?;
+
+    // The Slint component's own width must match the surface size above —
+    // set once here rather than hardcoded in ui/bar.slint.
+    shell.set("Bar", "bar_width", bar_width as i32);
 
     // Seed initial workspace state so the bar isn't blank before the first tick.
     if let Ok(compositor) = compositors::detect() {
