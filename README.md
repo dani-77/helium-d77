@@ -13,10 +13,12 @@ a rounded, floating pill anchored to the top of the screen.
 ## What it shows
 
 ```
-[ 1 2 3 4 5 ]    weather | clock (true center)    wifi | cpu | ram | bat | vol
+[apps] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
 ```
 
-- **Workspaces** (left) — 5 numbered pills, active one highlighted green, a
+- **Apps icon** (far left) — opens `helium-launcher`, a click-only app grid
+  (see Launcher below).
+- **Workspaces** — 5 numbered pills, active one highlighted green, a
   small dot marks occupied-but-inactive ones. Click a pill to switch to that
   workspace (Hyprland only — see Limitations). State is polled every second,
   not pushed via compositor events (see Limitations for why). The bar
@@ -33,9 +35,43 @@ a rounded, floating pill anchored to the top of the screen.
 - **Battery** — charge percent from sysfs; icon switches to a bolt while
   charging.
 - **Volume** — ALSA `Master` level and mute state via `amixer`.
+- **Power icon** (far right) — opens `helium-session`, a click-only session
+  menu (see Session menu below).
 
-Every section has a Nerd Font icon (workspaces/weather/clock/network/cpu/ram/
-battery/volume) — see Requirements.
+Every section has a Nerd Font icon (apps/workspaces/weather/clock/network/cpu/
+ram/battery/volume/power) — see Requirements.
+
+## Launcher (`helium-launcher`)
+
+A click-only app launcher, spawned on demand (like rofi/wofi) rather than a
+panel toggled inside the bar — see Limitations for why there's no search
+field or arrow-key navigation. Lists every non-hidden `.desktop` entry from
+`/usr/share/applications` and `~/.local/share/applications` as a scrollable,
+clickable list, each row's icon resolved from the entry's `Icon=` (a
+best-effort search across every installed icon theme plus `/usr/share/
+pixmaps`, not a full XDG icon-theme-spec implementation — entries whose icon
+can't be found are shown with no icon rather than a broken image). Clicking
+an entry launches it (wrapped in a detected terminal if the entry has
+`Terminal=true`) and the launcher closes; a "Close" row at the top cancels
+without launching anything.
+
+Opened by clicking the apps icon in the bar, or bind it directly to a key in
+your Hyprland config:
+
+```
+bind = SUPER, D, exec, /usr/bin/helium-launcher
+```
+
+## Session menu (`helium-session`)
+
+A click-only Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the
+action set and commands from a quickshell "session menu" widget:
+`loginctl <action>` with a `systemctl <action>` fallback for
+suspend/reboot/poweroff, `loginctl terminate-session "$XDG_SESSION_ID"` for
+logout (falls back to `self` if that variable isn't set), and `hyprlock` for
+Lock (falls back to `loginctl lock-session` if `hyprlock` isn't installed).
+Opened by clicking the power icon in the bar, or bind it to a key the same
+way as the launcher above.
 
 ## Requirements
 
@@ -106,3 +142,8 @@ config included.
   "hyprland-lua") use instead of the classic `<dispatcher> <args>` protocol.
 - Audio (beyond ALSA volume via `amixer`), power, and power-profiles services
   in helium-wsl itself are stubbed upstream and aren't used here.
+- **No text search or arrow-key navigation in the launcher.** Helium's
+  `on_key` is stubbed upstream too (`// todo: waiting on layer-shika keyboard
+  input API`), so there's no real keyboard input to build a search field on
+  top of — `helium-launcher` is click-only for exactly that reason. If
+  layer-shika grows keyboard support, that's the thing to revisit.

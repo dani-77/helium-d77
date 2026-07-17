@@ -106,6 +106,8 @@ export component Bar inherits Window {
     in property <string> weather_text: "…";
 
     callback workspace_clicked(int);
+    callback launcher_clicked();
+    callback session_clicked();
 
     Rectangle {
         background: #0d0d0d;
@@ -115,7 +117,7 @@ export component Bar inherits Window {
         // --- Workspaces (pinned left) ---------------------------------------
         Rectangle {
             x: 0;
-            width: 200px;
+            width: 224px;
             height: 100%;
             background: #141414;
 
@@ -126,12 +128,19 @@ export component Bar inherits Window {
                 padding-bottom: 8px;
                 spacing: 6px;
 
-                Text {
-                    text: "\u{F00A}";
-                    color: #555;
-                    font-size: 13px;
-                    font-family: "Symbols Nerd Font";
-                    vertical-alignment: center;
+                Rectangle {
+                    width: 20px;
+
+                    Text {
+                        text: "\u{F009}";
+                        color: #888;
+                        font-size: 14px;
+                        font-family: "Symbols Nerd Font";
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+
+                    TouchArea { clicked => { launcher_clicked(); } }
                 }
 
                 WorkspacePill { label: workspace_1; active: active_workspace == 1; occupied: occupied_1; clicked => { workspace_clicked(1); } }
@@ -192,10 +201,10 @@ export component Bar inherits Window {
             }
         }
 
-        // --- Network / CPU / RAM / battery / volume (pinned right) ----------
+        // --- Network / CPU / RAM / battery / volume / session (pinned right) --
         Rectangle {
             x: parent.width - self.width;
-            width: 454px;
+            width: 494px;
             height: 100%;
 
             HorizontalLayout {
@@ -211,6 +220,23 @@ export component Bar inherits Window {
                 StatChip { width: 64px; icon: bat_charging ? "\u{F0E7}" : "\u{F240}"; value: bat_text; highlight: true; }
                 Divider { }
                 StatChip { width: 72px; icon: vol_muted ? "\u{F026}" : "\u{F028}"; value: vol_text; highlight: !vol_muted; }
+                Divider { }
+
+                Rectangle {
+                    width: 40px;
+                    background: #141414;
+
+                    Text {
+                        text: "\u{F011}";
+                        color: #888;
+                        font-size: 14px;
+                        font-family: "Symbols Nerd Font";
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+
+                    TouchArea { clicked => { session_clicked(); } }
+                }
             }
         }
     }

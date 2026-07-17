@@ -74,6 +74,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Clicking the apps icon / power icon spawns the sibling launcher /
+    // session-menu binaries (spawn-on-demand, like rofi — see their doc
+    // comments for why they're separate processes instead of toggled panels
+    // inside this one).
+    shell.on_signal("Bar", "launcher_clicked", |_| spawn_sibling("helium-launcher"));
+    shell.on_signal("Bar", "session_clicked", |_| spawn_sibling("helium-session"));
+
     // Clock + workspace polling, once a second.
     //
     // Workspace state is polled rather than pushed via
@@ -149,6 +156,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     shell.run()?;
     Ok(())
+}
+
+/// Spawns another binary installed alongside this one (found via
+/// `current_exe()`'s directory), so it works both in `target/debug` during
+/// development and once installed system-wide (e.g. `/usr/bin`), as long as
+/// the sibling binary was installed to the same directory.
+fn spawn_sibling(name: &str) {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let Some(dir) = exe.parent() else { return };
+    let _ = std::process::Command::new(dir.join(name)).spawn();
 }
 
 /// Sends a command to Hyprland's control socket and returns its reply.
