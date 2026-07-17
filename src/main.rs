@@ -1,5 +1,6 @@
 mod network;
 mod sysinfo;
+mod weather;
 
 use helium_wsl::compositors::{self, Workspace};
 use helium_wsl::prelude::*;
@@ -48,6 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
         .margin(MARGIN as i32, MARGIN as i32, 0, MARGIN as i32)
+        // Hyprland adds the surface's own top margin on top of this value,
+        // so the exclusive zone only needs to cover the bar's height itself.
+        .exclusive_zone(36)
         .layer(Layer::Top)
         .build()?;
 
@@ -58,6 +62,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Seed initial workspace state so the bar isn't blank before the first tick.
     if let Ok(compositor) = compositors::detect() {
         apply_workspaces(&mut shell, &compositor.workspaces());
+    }
+    if let Some(w) = weather::status() {
+        shell.set("Bar", "weather_text", format!("{}  {}", w.condition, w.temperature));
     }
 
     // Clicking a workspace pill dispatches a real workspace switch.
@@ -131,15 +138,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
 
+    // Weather: a network call to a third-party service (wttr.in), so it
+    // gets its own long-interval timer rather than piggybacking on the
+    // network/stats tick above.
+    shell.on_tick(weather::POLL_INTERVAL, |ctx| {
+        if let Some(w) = weather::status() {
+            ctx.set("Bar", "weather_text", format!("{}  {}", w.condition, w.temperature));
+        }
+    })?;
+
     shell.run()?;
     Ok(())
 }
 
-/// Ask the running compositor to switch to workspace `n`.
-///
-/// Only Hyprland is implemented today, via its standard textual IPC
-/// (`dispatch workspace N` on `.socket.sock`). Niri would need its own
-/// IPC call here (Helium's `Compositor` trait doesn't expose one).
 /// Sends a command to Hyprland's control socket and returns its reply.
 fn hypr_command(cmd: &str) -> Option<String> {
     let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;

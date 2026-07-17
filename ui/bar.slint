@@ -103,6 +103,7 @@ export component Bar inherits Window {
     in property <string> vol_text: "…";
     in property <bool> vol_muted: false;
     in property <string> clock_text: "";
+    in property <string> weather_text: "…";
 
     callback workspace_clicked(int);
 
@@ -141,17 +142,36 @@ export component Bar inherits Window {
             }
         }
 
-        // --- Date / time — geometrically centered on the whole bar, not on
-        // whatever space happens to be left between the other two groups. ---
+        // --- Weather + date/time — geometrically centered on the whole bar
+        // as one unit, not on whatever space happens to be left between the
+        // other two groups. ---
         Rectangle {
             x: (parent.width - self.width) / 2;
-            width: 170px;
+            width: 320px;
             height: 100%;
             background: #141414;
 
             HorizontalLayout {
                 alignment: center;
-                spacing: 8px;
+                spacing: 10px;
+
+                Text {
+                    text: "\u{F0C2}";
+                    color: #888;
+                    font-size: 13px;
+                    font-family: "Symbols Nerd Font";
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: weather_text;
+                    color: #888;
+                    font-size: 12px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                }
+
+                Divider { }
 
                 Text {
                     text: "\u{F017}";

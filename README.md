@@ -13,15 +13,19 @@ a rounded, floating pill anchored to the top of the screen.
 ## What it shows
 
 ```
-[ 1 2 3 4 5 ]        clock (true center)        wifi | cpu | ram | bat | vol
+[ 1 2 3 4 5 ]    weather | clock (true center)    wifi | cpu | ram | bat | vol
 ```
 
 - **Workspaces** (left) — 5 numbered pills, active one highlighted green, a
   small dot marks occupied-but-inactive ones. Click a pill to switch to that
   workspace (Hyprland only — see Limitations). State is polled every second,
-  not pushed via compositor events (see Limitations for why).
-- **Date/time** — geometrically centered on the bar (not just centered in
-  whatever space is left between the other two groups), updated every second.
+  not pushed via compositor events (see Limitations for why). The bar
+  reserves real screen space (exclusive zone), so windows don't render
+  underneath it.
+- **Weather + date/time** — geometrically centered on the bar as one unit
+  (not just centered in whatever space is left between the other two
+  groups). Weather is condition + temperature only (e.g. "Clear  +20°C"),
+  from wttr.in, checked every 15 minutes. Clock updates every second.
 - **Network** — Wi-Fi SSID + signal strength (`SSID  72%`), "wired" on
   Ethernet, "offline" otherwise. Polled every 5s via NetworkManager D-Bus.
 - **CPU** — utilization percent since the last tick, from `/proc/stat`.
@@ -30,8 +34,8 @@ a rounded, floating pill anchored to the top of the screen.
   charging.
 - **Volume** — ALSA `Master` level and mute state via `amixer`.
 
-Every section has a Nerd Font icon (workspaces/clock/network/cpu/ram/battery/
-volume) — see Requirements.
+Every section has a Nerd Font icon (workspaces/weather/clock/network/cpu/ram/
+battery/volume) — see Requirements.
 
 ## Requirements
 
@@ -40,6 +44,8 @@ volume) — see Requirements.
   without it, just without that section updating).
 - NetworkManager on D-Bus for the network segment.
 - `amixer` (alsa-utils) for the volume segment.
+- `curl` and internet access for the weather segment (queries wttr.in — no
+  API key needed).
 - A battery under `/sys/class/power_supply/*` for the battery segment (a
   desktop with none just won't get a value there).
 - Rust (edition 2021) and the system deps `layer-shika` needs for Wayland
@@ -62,13 +68,10 @@ config included.
 
 ## Customizing
 
-- **Monitor width / margins**: `.size(w, h)` and `.margin(top, right, bottom,
-  left)` in `src/main.rs`, plus the `width:` on the `Bar` component in
-  `ui/bar.slint`, assume a 1366px-wide monitor with a 10px gap on three sides.
-  Adjust both to match your display — Hyprland doesn't always reconcile a
-  requested surface width larger than the monitor with `Top+Left+Right`
-  anchoring cleanly (it can offset the surface instead of clamping it), so
-  keep the two in sync.
+- **Monitor width**: derived automatically at startup from
+  `compositor.monitors()` (see `primary_monitor_width()` in `src/main.rs`),
+  so there's nothing to hand-edit per machine. The margin (10px on three
+  sides) is a constant (`MARGIN`) in the same file if you want it different.
 - **Colors/fonts**: everything lives in `ui/bar.slint`; the bar reuses the
   dark/green palette from Helium's own examples (`#0d0d0d` / `#141414`
   background, `#76b900` accent).
