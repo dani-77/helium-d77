@@ -42,9 +42,10 @@ fn actions() -> Vec<Action> {
     ]
 }
 
-// 6 buttons * 70px + 5 gaps * 8px + 2 * 10px padding = 480px needed; a bit
-// of slack on top of that so nothing gets clipped.
-const WINDOW_WIDTH: u32 = 520;
+// 6 buttons * 70px + 5 gaps * 8px + 2 * 8px padding = 476px needed
+// (spacing matches the exterior padding); a bit of slack on top so nothing
+// gets clipped.
+const WINDOW_WIDTH: u32 = 500;
 const WINDOW_HEIGHT: u32 = 120;
 
 fn build_slint_source(actions: &[Action]) -> String {
@@ -105,7 +106,7 @@ export component SessionMenu inherits Window {{
         clip: true;
 
         HorizontalLayout {{
-            padding: 10px;
+            padding: 8px;
             spacing: 8px;
             alignment: center;
 
