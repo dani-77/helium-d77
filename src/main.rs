@@ -38,7 +38,12 @@ fn primary_monitor_width() -> u32 {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bar_width = primary_monitor_width() - 2 * MARGIN;
 
-    let mut shell = Helium::from_file("ui/bar.slint")
+    // Embedded at compile time rather than loaded from "ui/bar.slint" at
+    // runtime: a relative path only resolves when launched from the project
+    // root, which breaks the moment the binary is installed system-wide
+    // (e.g. /usr/bin/helium-shell) and run from anywhere else, or autostarted
+    // by the compositor with an unrelated working directory.
+    let mut shell = Helium::from_source(include_str!("../ui/bar.slint"))
         .surface("Bar")
         .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
@@ -135,13 +140,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Only Hyprland is implemented today, via its standard textual IPC
 /// (`dispatch workspace N` on `.socket.sock`). Niri would need its own
 /// IPC call here (Helium's `Compositor` trait doesn't expose one).
-fn switch_workspace(n: i32) {
-    let Ok(sig) = std::env::var("HYPRLAND_INSTANCE_SIGNATURE") else { return };
+/// Sends a command to Hyprland's control socket and returns its reply.
+fn hypr_command(cmd: &str) -> Option<String> {
+    let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
     let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
     let path = std::path::PathBuf::from(runtime).join("hypr").join(sig).join(".socket.sock");
-    if let Ok(mut stream) = UnixStream::connect(&path) {
-        let _ = stream.write_all(format!("dispatch workspace {n}").as_bytes());
+    let mut stream = UnixStream::connect(&path).ok()?;
+    stream.write_all(cmd.as_bytes()).ok()?;
+    stream.shutdown(std::net::Shutdown::Write).ok();
+    let mut reply = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut reply).ok()?;
+    Some(reply)
+}
+
+fn switch_workspace(n: i32) {
+    // Standard Hyprland textual IPC — works on any normal Hyprland install.
+    if let Some(reply) = hypr_command(&format!("dispatch workspace {n}")) {
+        if !reply.starts_with("error") {
+            return;
+        }
     }
+    // Fallback for compositors that route `dispatch` through a Lua layer
+    // (e.g. a "hyprland-lua" build), where dispatchers are Lua calls instead
+    // of the classic `<name> <args>` text protocol.
+    hypr_command(&format!("dispatch hl.dsp.focus({{ workspace = {n} }})"));
 }
 
 fn apply_workspaces(shell: &mut ShellInstance, workspaces: &[Workspace]) {

@@ -55,8 +55,10 @@ volume) — see Requirements.
 cargo run --release
 ```
 
-Helium loads `ui/bar.slint` **relative to the current working directory**,
-so run `cargo run` from the project root (not from a subdirectory).
+`ui/bar.slint` is embedded into the binary at compile time (`include_str!`),
+so the built binary is self-contained — it can be installed anywhere (e.g.
+`/usr/bin/helium-shell`) and run from any working directory, autostart
+config included.
 
 ## Customizing
 
@@ -92,9 +94,12 @@ so run `cargo run` from the project root (not from a subdirectory).
 - **Bluetooth is not wired into this bar** (dropped in favor of CPU/RAM/
   battery/volume). `helium_wsl::services::bluetooth` still works standalone if
   you want to add it back — see `docs/services.md` in the helium-wsl repo.
-- **Workspace click-to-switch is Hyprland-only**, and uses Hyprland's
-  standard textual IPC (`dispatch workspace N`) directly — Helium's
-  `Compositor` trait has no dispatch/write API. Niri would need its own IPC
-  call added to `switch_workspace()` in `src/main.rs`.
+- **Workspace click-to-switch is Hyprland-only**, and talks to Hyprland's
+  control socket directly — Helium's `Compositor` trait has no dispatch/write
+  API. Niri would need its own IPC call added to `switch_workspace()` in
+  `src/main.rs`. It first tries the standard textual IPC (`dispatch workspace
+  N`); if that's rejected, it falls back to `dispatch hl.dsp.focus({
+  workspace = N })`, which some Lua-config Hyprland builds (e.g.
+  "hyprland-lua") use instead of the classic `<dispatcher> <args>` protocol.
 - Audio (beyond ALSA volume via `amixer`), power, and power-profiles services
   in helium-wsl itself are stubbed upstream and aren't used here.
