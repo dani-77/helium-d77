@@ -42,7 +42,9 @@ fn actions() -> Vec<Action> {
     ]
 }
 
-const WINDOW_WIDTH: u32 = 460;
+// 6 buttons * 70px + 5 gaps * 8px + 2 * 10px padding = 480px needed; a bit
+// of slack on top of that so nothing gets clipped.
+const WINDOW_WIDTH: u32 = 520;
 const WINDOW_HEIGHT: u32 = 120;
 
 fn build_slint_source(actions: &[Action]) -> String {
