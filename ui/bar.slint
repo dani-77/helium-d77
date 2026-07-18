@@ -2,6 +2,17 @@
 // `bar_width` is set from src/main.rs at startup, derived from the actual
 // monitor width — no need to hand-edit it for a different screen.
 
+// One workspace pill's worth of state. Populated from the compositor's
+// actual live workspace list (Hyprland and Niri alike — both already come
+// out of helium-wsl as the same Vec<Workspace>), so the bar shows exactly as
+// many pills as exist instead of a hardcoded count.
+export struct WorkspaceItem {
+    id: int,
+    label: string,
+    active: bool,
+    occupied: bool,
+}
+
 component Divider inherits Rectangle {
     width: 1px;
     height: 22px;
@@ -50,8 +61,6 @@ component StatChip inherits Rectangle {
     in property <string> value: "";
     in property <bool> highlight: false;
 
-    background: #141414;
-
     HorizontalLayout {
         alignment: center;
         spacing: 4px;
@@ -81,18 +90,7 @@ export component Bar inherits Window {
     height: 36px;
     background: transparent;
 
-    in property <int> active_workspace: 1;
-
-    in property <string> workspace_1: "1";
-    in property <string> workspace_2: "2";
-    in property <string> workspace_3: "3";
-    in property <string> workspace_4: "4";
-    in property <string> workspace_5: "5";
-    in property <bool> occupied_1: false;
-    in property <bool> occupied_2: false;
-    in property <bool> occupied_3: false;
-    in property <bool> occupied_4: false;
-    in property <bool> occupied_5: false;
+    in property <[WorkspaceItem]> workspaces: [];
 
     in property <string> net_text: "…";
     in property <bool> net_connected: false;
@@ -108,9 +106,12 @@ export component Bar inherits Window {
     callback workspace_clicked(int);
     callback launcher_clicked();
     callback session_clicked();
+    callback network_clicked();
+    callback volume_clicked();
+    callback battery_clicked();
 
     Rectangle {
-        background: #0d0d0d;
+        background: #141414;
         border-radius: self.height / 2;
         clip: true;
 
@@ -119,7 +120,6 @@ export component Bar inherits Window {
             x: 0;
             width: 224px;
             height: 100%;
-            background: #141414;
 
             HorizontalLayout {
                 padding-left: 12px;
@@ -143,11 +143,12 @@ export component Bar inherits Window {
                     TouchArea { clicked => { launcher_clicked(); } }
                 }
 
-                WorkspacePill { label: workspace_1; active: active_workspace == 1; occupied: occupied_1; clicked => { workspace_clicked(1); } }
-                WorkspacePill { label: workspace_2; active: active_workspace == 2; occupied: occupied_2; clicked => { workspace_clicked(2); } }
-                WorkspacePill { label: workspace_3; active: active_workspace == 3; occupied: occupied_3; clicked => { workspace_clicked(3); } }
-                WorkspacePill { label: workspace_4; active: active_workspace == 4; occupied: occupied_4; clicked => { workspace_clicked(4); } }
-                WorkspacePill { label: workspace_5; active: active_workspace == 5; occupied: occupied_5; clicked => { workspace_clicked(5); } }
+                for ws in workspaces : WorkspacePill {
+                    label: ws.label;
+                    active: ws.active;
+                    occupied: ws.occupied;
+                    clicked => { workspace_clicked(ws.id); }
+                }
             }
         }
 
@@ -158,7 +159,6 @@ export component Bar inherits Window {
             x: (parent.width - self.width) / 2;
             width: 320px;
             height: 100%;
-            background: #141414;
 
             HorizontalLayout {
                 alignment: center;
@@ -211,20 +211,37 @@ export component Bar inherits Window {
                 padding: 0;
                 spacing: 0;
 
-                StatChip { width: 190px; icon: "\u{F1EB}"; value: net_text; highlight: net_connected; }
+                StatChip {
+                    width: 190px;
+                    icon: "\u{F1EB}";
+                    value: net_text;
+                    highlight: net_connected;
+                    TouchArea { clicked => { network_clicked(); } }
+                }
                 Divider { }
                 StatChip { width: 64px; icon: "\u{F2DB}"; value: cpu_text; highlight: true; }
                 Divider { }
                 StatChip { width: 64px; icon: "\u{F0A0}"; value: ram_text; highlight: true; }
                 Divider { }
-                StatChip { width: 64px; icon: bat_charging ? "\u{F0E7}" : "\u{F240}"; value: bat_text; highlight: true; }
+                StatChip {
+                    width: 64px;
+                    icon: bat_charging ? "\u{F0E7}" : "\u{F240}";
+                    value: bat_text;
+                    highlight: true;
+                    TouchArea { clicked => { battery_clicked(); } }
+                }
                 Divider { }
-                StatChip { width: 72px; icon: vol_muted ? "\u{F026}" : "\u{F028}"; value: vol_text; highlight: !vol_muted; }
+                StatChip {
+                    width: 72px;
+                    icon: vol_muted ? "\u{F026}" : "\u{F028}";
+                    value: vol_text;
+                    highlight: !vol_muted;
+                    TouchArea { clicked => { volume_clicked(); } }
+                }
                 Divider { }
 
                 Rectangle {
                     width: 40px;
-                    background: #141414;
 
                     Text {
                         text: "\u{F011}";

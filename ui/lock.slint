@@ -1,0 +1,135 @@
+// Lock screen for helium-locker. Only ever shown while the compositor's
+// ext-session-lock-v1 surface is active — there is no window chrome, no
+// way to dismiss it besides a correct password.
+//
+// Palette matches ui/bar.slint: #141414/#0d0d0d backgrounds, #76b900 accent,
+// "Space Grotesk"/"Space Mono" body fonts, "Symbols Nerd Font" icons.
+
+export component LockScreen inherits Window {
+    background: #0d0d0d;
+
+    in-out property <string> password;
+    in-out property <string> clock_text: "";
+    in-out property <string> date_text: "";
+    in-out property <bool> show_error: false;
+    in-out property <bool> checking: false;
+
+    // Implemented in Rust: verifies the password against PAM and returns
+    // whether it was accepted.
+    callback unlock_requested(string) -> bool;
+    // Implemented in Rust: formats the current time/date so the clock
+    // doesn't depend on Slint having any notion of wall-clock time.
+    callback current_time() -> string;
+    callback current_date() -> string;
+
+    Timer {
+        interval: 1s;
+        running: true;
+        triggered => {
+            root.clock_text = root.current_time();
+            root.date_text = root.current_date();
+        }
+    }
+
+    Rectangle {
+        background: #0d0d0d;
+
+        VerticalLayout {
+            alignment: center;
+            // Default cross-axis-alignment is Stretch, which left-anchors
+            // any cell that isn't full-width (like the fixed-320px password
+            // box below) instead of centering it under the clock/date.
+            cross-axis-alignment: center;
+            spacing: 18px;
+
+            Text {
+                text: "\u{F023}";
+                color: #76b900;
+                font-size: 40px;
+                font-family: "Symbols Nerd Font";
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: root.clock_text;
+                color: #d4d4d4;
+                font-size: 64px;
+                font-family: "Space Mono";
+                letter-spacing: 2px;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: root.date_text;
+                color: #888;
+                font-size: 16px;
+                font-family: "Space Grotesk";
+                horizontal-alignment: center;
+            }
+
+            Rectangle { height: 16px; }
+
+            Rectangle {
+                width: 320px;
+                height: 48px;
+                background: #141414;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: root.show_error ? #d95c5c : (input.has-focus ? #76b900 : #333);
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 10px;
+
+                    Text {
+                        text: "\u{F084}";
+                        color: #76b900;
+                        font-size: 15px;
+                        font-family: "Symbols Nerd Font";
+                        vertical-alignment: center;
+                    }
+
+                    input := TextInput {
+                        text: root.password;
+                        input-type: InputType.password;
+                        color: #d4d4d4;
+                        font-size: 15px;
+                        font-family: "Space Grotesk";
+                        vertical-alignment: center;
+                        enabled: !root.checking;
+
+                        edited => { root.password = self.text; root.show_error = false; }
+                        accepted => { root.try_unlock(); }
+                    }
+                }
+            }
+
+            Text {
+                text: root.checking ? "Checking…" : (root.show_error ? "Incorrect password" : "");
+                color: root.show_error ? #d95c5c : #888;
+                font-size: 12px;
+                font-family: "Space Grotesk";
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    // Focus the password field the moment the surface appears.
+    forward-focus: input;
+
+    function try_unlock() {
+        if (root.password == "" || root.checking) {
+            return;
+        }
+        root.checking = true;
+        if (root.unlock_requested(root.password)) {
+            // Rust deactivates the session lock on success; nothing left
+            // to reset here.
+        } else {
+            root.password = "";
+            root.show_error = true;
+            root.checking = false;
+        }
+    }
+}

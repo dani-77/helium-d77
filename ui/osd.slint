@@ -1,0 +1,70 @@
+// On-screen display for helium-d77: a small overlay that briefly appears in
+// the top-right corner when volume, mute state, or the active power profile
+// changes. Driven by src/bin/helium-osd.rs polling amixer/powerprofilesctl
+// directly (not pushed from the bar's click handlers), so it also reacts to
+// changes made outside the bar itself — e.g. hardware media keys.
+//
+// Palette matches ui/bar.slint: #141414/#0d0d0d backgrounds, #76b900 accent,
+// "Space Grotesk"/"Space Mono" body fonts, "Symbols Nerd Font" icons.
+
+export component Osd inherits Window {
+    background: transparent;
+
+    // Named `glyph`, not `icon`: Window already has a built-in
+    // `icon: image` property (the OS-level window icon) — redeclaring it
+    // as a string is a type-incompatible override and fails to compile.
+    in property <string> glyph: "";
+    in property <string> label: "";
+    in property <float> level: 0;
+    in property <bool> show_progress: true;
+
+    Rectangle {
+        background: #141414;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #333;
+        clip: true;
+
+        HorizontalLayout {
+            padding: 14px;
+            spacing: 12px;
+
+            Text {
+                text: root.glyph;
+                color: #76b900;
+                font-size: 22px;
+                font-family: "Symbols Nerd Font";
+                vertical-alignment: center;
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 6px;
+
+                Text {
+                    text: root.label;
+                    color: #d4d4d4;
+                    font-size: 13px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                Rectangle {
+                    visible: root.show_progress;
+                    height: 4px;
+                    background: #2a2a2a;
+                    border-radius: 2px;
+
+                    Rectangle {
+                        x: 0;
+                        width: parent.width * root.level;
+                        height: 100%;
+                        background: #76b900;
+                        border-radius: 2px;
+                    }
+                }
+            }
+        }
+    }
+}

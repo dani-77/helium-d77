@@ -4,12 +4,13 @@ mod weather;
 
 use helium_wsl::compositors::{self, Workspace};
 use helium_wsl::prelude::*;
+use helium_wsl::slint::{ModelRc, VecModel};
 use helium_wsl::slint_interpreter;
+use helium_wsl::slint_interpreter::{Struct, Value};
 use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
-const WORKSPACE_SLOTS: usize = 5;
 const MARGIN: u32 = 10;
 const FALLBACK_MONITOR_WIDTH: u32 = 1366;
 
@@ -80,6 +81,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // inside this one).
     shell.on_signal("Bar", "launcher_clicked", |_| spawn_sibling("helium-launcher"));
     shell.on_signal("Bar", "session_clicked", |_| spawn_sibling("helium-session"));
+    shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
+    shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());
+    shell.on_signal("Bar", "battery_clicked", |_| cycle_power_profile());
 
     // Clock + workspace polling, once a second.
     //
@@ -168,6 +172,58 @@ fn spawn_sibling(name: &str) {
     let _ = std::process::Command::new(dir.join(name)).spawn();
 }
 
+/// Toggles Master mute via `amixer`, matching the control name `sysinfo::volume()`
+/// already reads and the mute-toggle approach quickshell-d77/fabric-d77 use.
+fn toggle_mute() {
+    let _ = std::process::Command::new("amixer").args(["set", "Master", "toggle"]).spawn();
+}
+
+/// Power profiles cycled by clicking the battery chip, in the order
+/// quickshell-d77/fabric-d77 cycle them (power-profiles-daemon's own three
+/// profiles — there's no fourth to add).
+const POWER_PROFILES: [&str; 3] = ["performance", "balanced", "power-saver"];
+
+/// Advances to the next `power-profiles-daemon` profile via `powerprofilesctl`.
+/// Reads the current profile synchronously (a local D-Bus round trip,
+/// negligible next to a click) so the cycle has somewhere to advance from;
+/// unrecognized/missing output just starts the cycle over at the first profile.
+fn cycle_power_profile() {
+    let current = std::process::Command::new("powerprofilesctl")
+        .arg("get")
+        .output()
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
+    let idx = current
+        .and_then(|c| POWER_PROFILES.iter().position(|p| *p == c))
+        .unwrap_or(POWER_PROFILES.len() - 1);
+    let next = POWER_PROFILES[(idx + 1) % POWER_PROFILES.len()];
+    let _ = std::process::Command::new("powerprofilesctl").args(["set", next]).spawn();
+}
+
+/// Opens a floating terminal running `nmtui`, the same way quickshell-d77 and
+/// fabric-d77 do: `nmtui-float` isn't a script, it's a Wayland app-id/class
+/// assigned to the launched terminal window so a compositor windowrule can
+/// float it (e.g. Hyprland's `windowrulev2 = float, class:^(nmtui-float)$`,
+/// expected to live in the user's own compositor config, not here).
+///
+/// Tries terminals in the same order as those two projects, falling through
+/// via shell `||` to the next one if a given terminal isn't installed.
+fn launch_nmtui() {
+    let candidates = [
+        ("foot", "foot --app-id=nmtui-float -e nmtui"),
+        ("kitty", "kitty --class=nmtui-float -e nmtui"),
+        ("alacritty", "alacritty --class=nmtui-float -e nmtui"),
+        ("wezterm", "wezterm start --class nmtui-float -- nmtui"),
+        ("xterm", "xterm -class nmtui-float -e nmtui"),
+    ];
+    let script = candidates
+        .iter()
+        .map(|(bin, cmd)| format!("command -v {bin} >/dev/null 2>&1 && exec setsid {cmd}"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    let _ = std::process::Command::new("sh").arg("-c").arg(script).spawn();
+}
+
 /// Sends a command to Hyprland's control socket and returns its reply.
 fn hypr_command(cmd: &str) -> Option<String> {
     let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
@@ -181,41 +237,74 @@ fn hypr_command(cmd: &str) -> Option<String> {
     Some(reply)
 }
 
+/// Sends one JSON request to niri's IPC socket and returns its reply line.
+///
+/// Mirrors the request/response shape niri itself uses (one line in, one
+/// line out over `NIRI_SOCKET`) rather than reading to EOF like
+/// `hypr_command` does — niri doesn't close the connection after replying,
+/// so a `read_to_string` here would just hang waiting for EOF.
+fn niri_command(req: &str) -> Option<String> {
+    let path = std::env::var("NIRI_SOCKET").ok()?;
+    let mut stream = UnixStream::connect(&path).ok()?;
+    stream.write_all(req.as_bytes()).ok()?;
+    stream.write_all(b"\n").ok()?;
+    let mut reader = std::io::BufReader::new(stream);
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut reader, &mut line).ok()?;
+    Some(line)
+}
+
 fn switch_workspace(n: i32) {
-    // Standard Hyprland textual IPC — works on any normal Hyprland install.
-    if let Some(reply) = hypr_command(&format!("dispatch workspace {n}")) {
-        if !reply.starts_with("error") {
-            return;
+    // `compositors::detect()` picks Hyprland over Niri when both env vars
+    // happen to be set, so mirror that same precedence here.
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        // Standard Hyprland textual IPC — works on any normal Hyprland install.
+        if let Some(reply) = hypr_command(&format!("dispatch workspace {n}")) {
+            if !reply.starts_with("error") {
+                return;
+            }
         }
+        // Fallback for compositors that route `dispatch` through a Lua layer
+        // (e.g. a "hyprland-lua" build), where dispatchers are Lua calls instead
+        // of the classic `<name> <args>` text protocol.
+        hypr_command(&format!("dispatch hl.dsp.focus({{ workspace = {n} }})"));
+        return;
     }
-    // Fallback for compositors that route `dispatch` through a Lua layer
-    // (e.g. a "hyprland-lua" build), where dispatchers are Lua calls instead
-    // of the classic `<name> <args>` text protocol.
-    hypr_command(&format!("dispatch hl.dsp.focus({{ workspace = {n} }})"));
+
+    if std::env::var("NIRI_SOCKET").is_ok() {
+        niri_command(&format!(
+            r#"{{"Action":{{"FocusWorkspace":{{"reference":{{"Index":{n}}}}}}}}}"#
+        ));
+    }
+}
+
+/// Builds the `[WorkspaceItem]` model value for `ui/bar.slint`'s `workspaces`
+/// property directly from the compositor's live workspace list — the same
+/// `Vec<Workspace>` for Hyprland and Niri alike, so the bar shows exactly as
+/// many pills as actually exist instead of a hardcoded count (Niri's
+/// workspaces are dynamic per-monitor, unlike Hyprland's small fixed set).
+fn workspaces_value(workspaces: &[Workspace]) -> Value {
+    let items: Vec<Value> = workspaces
+        .iter()
+        .map(|w| {
+            let fields: Struct = [
+                ("id".to_string(), Value::Number(w.id as f64)),
+                ("label".to_string(), Value::String(w.name.clone().into())),
+                ("active".to_string(), Value::Bool(w.active)),
+                ("occupied".to_string(), Value::Bool(w.occupied)),
+            ]
+            .into_iter()
+            .collect();
+            Value::Struct(fields)
+        })
+        .collect();
+    Value::Model(ModelRc::new(VecModel::from(items)))
 }
 
 fn apply_workspaces(shell: &mut ShellInstance, workspaces: &[Workspace]) {
-    if let Some(active) = workspaces.iter().find(|w| w.active) {
-        shell.set("Bar", "active_workspace", active.id as i32);
-    }
-    for slot in 1..=WORKSPACE_SLOTS {
-        let occupied = workspaces
-            .iter()
-            .any(|w| w.id as usize == slot && w.occupied);
-        shell.set("Bar", &format!("workspace_{slot}"), slot.to_string());
-        shell.set("Bar", &format!("occupied_{slot}"), occupied);
-    }
+    shell.set("Bar", "workspaces", workspaces_value(workspaces));
 }
 
 fn apply_workspaces_ctx(ctx: &mut TickContext, workspaces: &[Workspace]) {
-    if let Some(active) = workspaces.iter().find(|w| w.active) {
-        ctx.set("Bar", "active_workspace", active.id as i32);
-    }
-    for slot in 1..=WORKSPACE_SLOTS {
-        let occupied = workspaces
-            .iter()
-            .any(|w| w.id as usize == slot && w.occupied);
-        ctx.set("Bar", &format!("workspace_{slot}"), slot.to_string());
-        ctx.set("Bar", &format!("occupied_{slot}"), occupied);
-    }
+    ctx.set("Bar", "workspaces", workspaces_value(workspaces));
 }

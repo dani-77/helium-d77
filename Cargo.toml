@@ -10,3 +10,10 @@ helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
 zbus = "4"
 zvariant = "4"
 tokio = { version = "1", features = ["rt"] }
+
+# Direct dependency (rather than just helium-wsl's `raw` re-export) so
+# helium-locker can call `Shell::create_session_lock`, which helium-wsl's own
+# `Helium`/`ShellInstance` wrapper doesn't expose yet.
+layer-shika = "0.3"
+pam-client2 = "0.5"
+env_logger = "0.11"

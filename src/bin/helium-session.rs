@@ -21,15 +21,28 @@ fn session_command(action: &str) -> String {
     format!("loginctl {action} 2>&1 || systemctl {action} 2>&1")
 }
 
+/// Shells out to hyprlock / loginctl rather than the sibling `helium-locker`
+/// binary (native ext-session-lock-v1, see its own doc comment).
+///
+/// helium-locker is temporarily disabled here: under niri, layer-shika's
+/// session-lock surface (which uses wp_fractional_scale + wp_viewporter)
+/// gets keyboard/pointer focus and then niri immediately cancels the lock
+/// via `ext_session_lock_v1.finished()` ~30ms later — confirmed with a
+/// WAYLAND_DEBUG=1 trace, not a bug in helium-locker.rs/lock.slint. Revert
+/// to preferring helium-locker (see git blame) once that's fixed upstream.
+fn lock_command() -> String {
+    // hyprlock if present (matches quickshell-d77's lock keybind);
+    // loginctl lock-session as a generic fallback otherwise.
+    "command -v hyprlock >/dev/null 2>&1 && hyprlock || loginctl lock-session".to_string()
+}
+
 fn actions() -> Vec<Action> {
     let session_id = std::env::var("XDG_SESSION_ID").unwrap_or_else(|_| "self".to_string());
     vec![
         Action {
             icon: "\u{F023}",
             label: "Lock",
-            // hyprlock if present (matches quickshell-d77's lock keybind);
-            // loginctl lock-session as a generic fallback otherwise.
-            command: "command -v hyprlock >/dev/null 2>&1 && hyprlock || loginctl lock-session".to_string(),
+            command: lock_command(),
         },
         Action { icon: "\u{F186}", label: "Suspend", command: session_command("suspend") },
         Action { icon: "\u{F021}", label: "Reboot", command: session_command("reboot") },
