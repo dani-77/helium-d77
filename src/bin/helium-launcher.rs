@@ -86,14 +86,23 @@ fn parse_desktop_file(path: &std::path::Path) -> Option<AppEntry> {
     Some(AppEntry { name, exec, terminal, icon })
 }
 
+/// Icon theme to prefer, plus its own fallback chain, before falling back
+/// further to whatever other theme happens to have the icon (see
+/// `resolve_icon`). Mirrors Papirus-Dark's own `index.theme` `Inherits=`
+/// (`breeze-dark,hicolor`) rather than parsing it at runtime.
+const PREFERRED_ICON_THEMES: &[&str] = &["Papirus-Dark", "breeze-dark", "hicolor"];
+
 /// Resolves a desktop entry's `Icon=` value (usually a bare theme name, e.g.
 /// "Alacritty", occasionally an absolute path) to an actual file on disk.
 ///
 /// This is a best-effort search, not a full XDG icon-theme-spec
-/// implementation (no theme inheritance, no index.theme parsing) — it just
-/// checks every installed theme's common size directories plus pixmaps.
-/// Apps whose icon can't be found this way are shown with no icon rather
-/// than a broken image.
+/// implementation (no generic index.theme inheritance parsing, no
+/// user-configurable theme) — it checks `PREFERRED_ICON_THEMES` first (so
+/// icons consistently come from Papirus-Dark where it has them), then falls
+/// back to every other installed theme's common size directories plus
+/// pixmaps for the apps Papirus-Dark and its fallbacks don't cover. Apps
+/// whose icon can't be found this way are shown with no icon rather than a
+/// broken image.
 fn resolve_icon(name: &str) -> Option<String> {
     if name.starts_with('/') {
         return std::path::Path::new(name).is_file().then(|| name.to_string());
@@ -102,15 +111,27 @@ fn resolve_icon(name: &str) -> Option<String> {
     const SIZES: &[&str] = &["scalable", "48x48", "64x64", "128x128", "32x32", "256x256"];
     const EXTS: &[&str] = &["svg", "png"];
 
+    let find_in = |theme_dir: &std::path::Path| {
+        for size in SIZES {
+            for ext in EXTS {
+                let candidate = theme_dir.join(size).join("apps").join(format!("{name}.{ext}"));
+                if candidate.is_file() {
+                    return candidate.to_str().map(str::to_string);
+                }
+            }
+        }
+        None
+    };
+
+    for theme in PREFERRED_ICON_THEMES {
+        if let Some(found) = find_in(&PathBuf::from("/usr/share/icons").join(theme)) {
+            return Some(found);
+        }
+    }
     if let Ok(theme_dirs) = fs::read_dir("/usr/share/icons") {
         for theme_dir in theme_dirs.flatten() {
-            for size in SIZES {
-                for ext in EXTS {
-                    let candidate = theme_dir.path().join(size).join("apps").join(format!("{name}.{ext}"));
-                    if candidate.is_file() {
-                        return candidate.to_str().map(str::to_string);
-                    }
-                }
+            if let Some(found) = find_in(&theme_dir.path()) {
+                return Some(found);
             }
         }
     }
