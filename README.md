@@ -17,7 +17,7 @@ a rounded, floating pill anchored to the top of the screen.
 [apps] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
 ```
 
-- **Apps icon** (far left) — opens `helium-launcher`, a click-only app grid
+- **Apps icon** (far left) — opens `helium-launcher`, a searchable app list
   (see Launcher below).
 - **Workspaces** — one pill per *actual* live workspace (a `[WorkspaceItem]`
   model built from the compositor's own workspace list, not a hardcoded
@@ -42,8 +42,8 @@ a rounded, floating pill anchored to the top of the screen.
   (performance → balanced → power-saver → …) via `powerprofilesctl`.
 - **Volume** — ALSA `Master` level and mute state via `amixer`. Click it to
   toggle mute (`amixer set Master toggle`).
-- **Power icon** (far right) — opens `helium-session`, a click-only session
-  menu (see Session menu below).
+- **Power icon** (far right) — opens `helium-session`, a click-and-keyboard
+  session menu (see Session menu below).
 
 Volume and power-profile changes (from anywhere, not just the bar's own
 clicks) also flash a small OSD in the top-right corner — see OSD below.
@@ -53,17 +53,23 @@ ram/battery/volume/power) — see Requirements.
 
 ## Launcher (`helium-launcher`)
 
-A click-only app launcher, spawned on demand (like rofi/wofi) rather than a
-panel toggled inside the bar — see Limitations for why there's no search
-field or arrow-key navigation. Lists every non-hidden `.desktop` entry from
-`/usr/share/applications` and `~/.local/share/applications` as a scrollable,
-clickable list, each row's icon resolved from the entry's `Icon=` (a
-best-effort search across every installed icon theme plus `/usr/share/
-pixmaps`, not a full XDG icon-theme-spec implementation — entries whose icon
-can't be found are shown with no icon rather than a broken image). Clicking
-an entry launches it (wrapped in a detected terminal if the entry has
-`Terminal=true`) and the launcher closes; a "Close" row at the top cancels
-without launching anything.
+A rofi/wofi-style app launcher, spawned on demand rather than a panel
+toggled inside the bar. Lists every non-hidden `.desktop` entry from
+`/usr/share/applications` and `~/.local/share/applications` as a scrollable
+list, each row's icon resolved from the entry's `Icon=` (a best-effort
+search across every installed icon theme plus `/usr/share/pixmaps`, not a
+full XDG icon-theme-spec implementation — entries whose icon can't be found
+are shown with no icon rather than a broken image).
+
+A search box grabs keyboard focus as soon as the launcher opens (the
+surface requests `KeyboardInteractivity::Exclusive`); typing filters the
+list live, case-insensitive substring match on the app name. Up/Down move
+the selection among the currently-visible rows, Enter launches whichever
+row is selected, Escape closes without launching anything — all real
+Wayland keyboard input via Slint's `TextInput`, the same mechanism the
+lock screen's password field uses (see Limitations' old note on this,
+corrected). Clicking a row still works too and launches it directly
+(wrapped in a detected terminal if the entry has `Terminal=true`).
 
 Opened by clicking the apps icon in the bar, or bind it directly to a key in
 your Hyprland config:
@@ -74,14 +80,19 @@ bind = SUPER, D, exec, /usr/bin/helium-launcher
 
 ## Session menu (`helium-session`)
 
-A click-only Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the
-action set and commands from a quickshell "session menu" widget:
-`loginctl <action>` with a `systemctl <action>` fallback for
-suspend/reboot/poweroff, `loginctl terminate-session "$XDG_SESSION_ID"` for
-logout (falls back to `self` if that variable isn't set). Lock runs
-`hyprlock` if it's installed, falling back to `loginctl lock-session`
-otherwise. Opened by clicking the power icon in the bar, or bind it to a key
-the same way as the launcher above.
+A Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the action set
+and commands from a quickshell "session menu" widget: `loginctl <action>`
+with a `systemctl <action>` fallback for suspend/reboot/poweroff,
+`loginctl terminate-session "$XDG_SESSION_ID"` for logout (falls back to
+`self` if that variable isn't set). Lock runs `hyprlock` if it's installed,
+falling back to `loginctl lock-session` otherwise.
+
+Grabs keyboard focus as soon as it opens. Left/Right move the selection
+across the row (Cancel included), Enter activates whichever button is
+selected, Escape cancels — via a `FocusScope` around the button row (no
+text field needed here, unlike the launcher, so no `TextInput`). Clicking a
+button still works too. Opened by clicking the power icon in the bar, or
+bind it to a key the same way as the launcher above.
 
 ## Locker (`helium-locker`)
 
@@ -262,8 +273,17 @@ config included.
   shows.
 - Audio (beyond ALSA volume via `amixer`), power, and power-profiles services
   in helium-wsl itself are stubbed upstream and aren't used here.
-- **No text search or arrow-key navigation in the launcher.** Helium's
-  `on_key` is stubbed upstream too (`// todo: waiting on layer-shika keyboard
-  input API`), so there's no real keyboard input to build a search field on
-  top of — `helium-launcher` is click-only for exactly that reason. If
-  layer-shika grows keyboard support, that's the thing to revisit.
+- **`helium_wsl::Helium::on_key` is still a stub** (`// todo: waiting on
+  layer-shika keyboard input API`) — it's a convenience callback for
+  binding global shortcuts, unrelated to normal widget-level keyboard
+  input. That's a real gap, but it doesn't mean keyboard input is missing
+  wholesale: Slint's own `TextInput`/`FocusScope` receive real
+  `wl_keyboard` events (via `layer-shika-adapters`, dispatched as
+  `WindowEvent::KeyPressed`) on any layer-shell surface with keyboard
+  focus, not just session-lock surfaces. `helium-launcher`'s search box
+  and `ui/lock.slint`'s password field both rely on this directly. Building
+  a binary on raw `layer_shika::Shell` instead of the `Helium` wrapper is
+  what it takes to wire this up, since pushing filter/selection state back
+  onto the surface from inside a Slint callback needs
+  `ComponentInstance::as_weak()`, which the wrapper's `on_signal` doesn't
+  expose access to.
