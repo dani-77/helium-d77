@@ -211,9 +211,60 @@ fn push_filter_state(instance: &ComponentInstance, apps: &[AppEntry], query: &st
 }
 
 const ROW_HEIGHT: u32 = 32;
+const ROW_SPACING: u32 = 2;
 const SEARCH_HEIGHT: u32 = 36;
 const WINDOW_WIDTH: u32 = 380;
 const WINDOW_HEIGHT: u32 = 480;
+const LAYOUT_PADDING: u32 = 8;
+const LAYOUT_SPACING: u32 = 4;
+/// Actual rendered height of the Flickable row list: the window minus the
+/// search box and the outer VerticalLayout's padding/spacing around it.
+/// Needed in Rust (not just Slint) to decide whether the selected row is
+/// already inside the visible scroll area, or needs `list_scroll_y` nudged.
+const LIST_VIEWPORT_HEIGHT: u32 =
+    WINDOW_HEIGHT - SEARCH_HEIGHT - LAYOUT_PADDING * 2 - LAYOUT_SPACING;
+
+/// Top/bottom y (within the Flickable's content, i.e. ignoring current
+/// scroll) that `selected_index` occupies, given which full-list indices
+/// are currently visible.
+///
+/// Mirrors how Slint's VerticalLayout actually stacks the rows: a spacing
+/// gap is inserted between *every* adjacent row regardless of visibility
+/// (hidden rows collapse to 0 height but still contribute a gap), so the
+/// offset depends on the row's position in the full list, while its height
+/// contribution only comes from rows that are actually visible before it.
+fn row_extent(visible: &[usize], selected_index: i32) -> (f32, f32) {
+    let pos = visible.iter().position(|&i| i as i32 == selected_index).unwrap_or(0) as u32;
+    let y_top = (pos * ROW_HEIGHT + selected_index as u32 * ROW_SPACING) as f32;
+    (y_top, y_top + ROW_HEIGHT as f32)
+}
+
+/// Nudges `list_scroll_y` (if needed) so the selected row is fully inside
+/// the visible list area — mimicking what dragging the list with the mouse
+/// would achieve, but from Up/Down/typing instead.
+fn scroll_selected_into_view(
+    instance: &ComponentInstance,
+    visible: &[usize],
+    selected_index: i32,
+) {
+    if selected_index < 0 {
+        return;
+    }
+    let Some(Value::Number(current)) = instance.get_property("list_scroll_y").ok() else {
+        return;
+    };
+    let (y_top, y_bottom) = row_extent(visible, selected_index);
+    let viewport_h = LIST_VIEWPORT_HEIGHT as f32;
+    let current = current as f32;
+    let new_scroll = if y_top < -current {
+        -y_top
+    } else if y_bottom > -current + viewport_h {
+        -(y_bottom - viewport_h)
+    } else {
+        return;
+    };
+    instance.set_property("list_scroll_y", Value::Number(new_scroll as f64)).ok();
+}
 
 fn build_slint_source(apps: &[AppEntry]) -> String {
     let mut rows = String::new();
@@ -286,6 +337,7 @@ export component Launcher inherits Window {{
 
     in property <[bool]> row_visible: [{init_visible}];
     in property <int> selected_index: {init_selected};
+    in-out property <length> list_scroll_y: 0px;
 
     forward-focus: search_input;
 
@@ -295,8 +347,8 @@ export component Launcher inherits Window {{
         clip: true;
 
         VerticalLayout {{
-            padding: 8px;
-            spacing: 4px;
+            padding: {LAYOUT_PADDING}px;
+            spacing: {LAYOUT_SPACING}px;
 
             Rectangle {{
                 height: {SEARCH_HEIGHT}px;
@@ -355,9 +407,10 @@ export component Launcher inherits Window {{
             Flickable {{
                 vertical-stretch: 1;
                 viewport-height: {rows_height}px;
+                viewport-y <=> root.list_scroll_y;
 
                 VerticalLayout {{
-                    spacing: 2px;
+                    spacing: {ROW_SPACING}px;
 {rows}
                 }}
             }}
@@ -365,7 +418,7 @@ export component Launcher inherits Window {{
     }}
 }}
 "#,
-        rows_height = apps.len() as u32 * (ROW_HEIGHT + 2),
+        rows_height = apps.len() as u32 * (ROW_HEIGHT + ROW_SPACING),
     )
 }
 
@@ -401,6 +454,7 @@ fn main() -> Result<()> {
             *selected_q.borrow_mut() = selected;
             if let Some(instance) = weak.upgrade() {
                 push_filter_state(&instance, &apps_q, &query, selected);
+                scroll_selected_into_view(&instance, &visible, selected);
             }
             Value::Void
         }).ok();
@@ -420,6 +474,7 @@ fn main() -> Result<()> {
                 *selected_n.borrow_mut() = new_selected;
                 if let Some(instance) = weak.upgrade() {
                     instance.set_property("selected_index", Value::Number(f64::from(new_selected))).ok();
+                    scroll_selected_into_view(&instance, &visible, new_selected);
                 }
             }
             Value::Void
