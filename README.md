@@ -138,11 +138,13 @@ bind = SUPER, L, exec, /usr/bin/helium-locker
 ## OSD (`helium-osd`)
 
 A small overlay (top-right corner, below the bar) that briefly appears when
-volume/mute or the active power-profiles-daemon profile changes, mirroring
-the OSD in quickshell-d77/fabric-d77. It polls `amixer`/`powerprofilesctl`
-directly on its own ~300ms timer rather than reacting to the bar's click
-handlers, so it also reacts to changes made outside the bar (hardware media
-keys, `powerprofilesctl` run from a terminal, etc). Auto-hides after 2.5s.
+volume/mute, screen brightness, or the active power-profiles-daemon profile
+changes, mirroring the OSD in quickshell-d77/fabric-d77. It polls
+`amixer`/`brightnessctl`/`powerprofilesctl` directly on its own ~300ms timer
+rather than reacting to the bar's click handlers, so it also reacts to
+changes made outside the bar (hardware media keys,
+`brightnessctl`/`powerprofilesctl` run from a terminal, etc). Auto-hides
+after 2.5s.
 
 A separate, always-running process (not spawned on demand by the bar): it
 sits at a 1x1 surface size when idle and resizes itself up only while
@@ -173,6 +175,9 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   NetworkManager) and one of `foot`/`kitty`/`alacritty`/`wezterm`/`xterm` for
   the network chip's click-to-open behavior.
 - `amixer` (alsa-utils) for the volume segment and its click-to-mute.
+- `brightnessctl` for the OSD's brightness display (no bar segment reads it
+  yet — the OSD just reacts to whatever changed brightness, e.g. hardware
+  keys or `brightnessctl` itself).
 - `power-profiles-daemon` (`powerprofilesctl`) for the battery chip's
   click-to-cycle-profile behavior and the OSD's profile display — the
   segment/chip itself still works without it, that click just becomes a

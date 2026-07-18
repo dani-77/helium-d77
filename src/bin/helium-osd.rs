@@ -1,11 +1,12 @@
 //! On-screen display for helium-d77.
 //!
-//! A small overlay, top-right, that briefly appears when volume/mute or the
-//! active power-profiles-daemon profile changes. Polls `amixer` /
-//! `powerprofilesctl` directly on a fast timer rather than reacting to the
-//! bar's own click handlers, so it also picks up changes made outside the
-//! bar (hardware media keys, `powerprofilesctl` run from a terminal, etc.) —
-//! the same trigger model quickshell-d77/fabric-d77 use for their OSDs.
+//! A small overlay, top-right, that briefly appears when volume/mute,
+//! screen brightness, or the active power-profiles-daemon profile changes.
+//! Polls `amixer` / `brightnessctl` / `powerprofilesctl` directly on a fast
+//! timer rather than reacting to the bar's own click handlers, so it also
+//! picks up changes made outside the bar (hardware media keys,
+//! `brightnessctl`/`powerprofilesctl` run from a terminal, etc.) — the same
+//! trigger model quickshell-d77/fabric-d77 use for their OSDs.
 //!
 //! Built directly on `layer_shika::Shell` (not helium-wsl's `Helium`/
 //! `ShellInstance` wrapper): that wrapper doesn't expose per-surface resize
@@ -49,6 +50,16 @@ fn read_volume() -> Option<(u8, bool)> {
     Some((percent, muted))
 }
 
+/// Reads screen brightness (0-100) via `brightnessctl -m`, same
+/// machine-readable parsing (field 4 of the comma-separated output) as
+/// fabric-d77/quickshell-d77's OSDs.
+fn read_brightness() -> Option<u8> {
+    let output = std::process::Command::new("brightnessctl").arg("-m").output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let field = text.trim().split(',').nth(3)?;
+    field.trim_end_matches('%').parse().ok()
+}
+
 fn read_power_profile() -> Option<String> {
     let output = std::process::Command::new("powerprofilesctl").arg("get").output().ok()?;
     let profile = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -72,6 +83,7 @@ fn main() -> Result<()> {
     // Seeded before the first tick so startup itself never counts as a
     // "change" and flashes the OSD on launch.
     let mut last_volume = read_volume();
+    let mut last_brightness = read_brightness();
     let mut last_profile = read_power_profile();
     let mut hide_at: Option<Instant> = None;
 
@@ -87,6 +99,21 @@ fn main() -> Result<()> {
                 for surface in app_state.surfaces_by_name("Osd") {
                     let instance = surface.component_instance();
                     instance.set_property("glyph", Value::String(icon.into())).ok();
+                    instance.set_property("label", Value::String(label.clone().into())).ok();
+                    instance.set_property("level", Value::Number(percent as f64 / 100.0)).ok();
+                    instance.set_property("show_progress", Value::Bool(true)).ok();
+                }
+                changed = true;
+            }
+        }
+
+        if let Some(percent) = read_brightness() {
+            if last_brightness != Some(percent) {
+                last_brightness = Some(percent);
+                let label = format!("Brightness {percent}%");
+                for surface in app_state.surfaces_by_name("Osd") {
+                    let instance = surface.component_instance();
+                    instance.set_property("glyph", Value::String("\u{F185}".into())).ok();
                     instance.set_property("label", Value::String(label.clone().into())).ok();
                     instance.set_property("level", Value::Number(percent as f64 / 100.0)).ok();
                     instance.set_property("show_progress", Value::Bool(true)).ok();
