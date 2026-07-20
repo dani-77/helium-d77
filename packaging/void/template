@@ -10,11 +10,8 @@ short_desc="Personal Wayland status bar built with the Helium shell framework"
 maintainer="Daniel Azevedo <daniazevedo77@posteo.net>"
 license="MIT"
 homepage="https://github.com/dani-77/helium-d77"
-distfiles="https://github.com/dani-77/helium-d77/archive/refs/tags/v${version}.tar.gz"
-# No upstream release is tagged yet -- run `xbps-src fetch helium-shell` and
-# `xbps-digest` (or `xbps-src hash`) against v${version} once it exists, and
-# drop the real value in here.
-checksum=REPLACE_WITH_SHA256_ONCE_v${version}_IS_TAGGED
+distfiles="https://github.com/dani-77/helium-d77/archive/refs/tags/${version}.tar.gz"
+checksum=REPLACE_WITH_SHA256
 
 # build_style=cargo's default do_install only installs a single binary named
 # ${pkgname}. This crate produces four -- mirrors the Makefile's BINS, which

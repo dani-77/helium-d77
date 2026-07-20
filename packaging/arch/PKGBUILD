@@ -8,10 +8,8 @@ url="https://github.com/dani-77/helium-d77"
 license=('MIT')
 depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
 makedepends=('cargo' 'pkgconf' 'git')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/v$pkgver.tar.gz")
-# No upstream release is tagged yet -- run `updpkgsums` (or `makepkg -g`)
-# against v$pkgver once it exists, and drop the real sha256 in here.
-sha256sums=('SKIP')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
+sha256sums=('REPLACE_WITH_SHA256')
 
 prepare() {
 	cd "helium-d77-$pkgver"
