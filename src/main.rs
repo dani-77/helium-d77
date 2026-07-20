@@ -24,12 +24,20 @@ const FALLBACK_MONITOR_WIDTH: u32 = 1366;
 /// real monitor guarantees the requested size and the anchor-stretched size
 /// always agree, on any screen.
 ///
-/// Tries `niri_monitor_width()` first — see its doc comment for why
-/// `helium_wsl`'s own niri monitor detection can't be trusted — falling
-/// back to `compositors::detect()` (Hyprland, or niri if the direct IPC
-/// query itself failed) before finally giving up on the hardcoded default.
+/// Tries `niri_monitor_width()`, then `sway_monitor_width()` — see their doc
+/// comments for why neither can go through `helium_wsl` — falling back to
+/// `compositors::detect()` (Hyprland) before finally giving up on the
+/// hardcoded default. `helium_wsl::compositors::detect()` doesn't know about
+/// Sway at all (only Hyprland/niri), so without the dedicated Sway query
+/// below every Sway machine would silently hit the same fallback the niri
+/// bug above used to cause — visible there as a *centered* bar with equal
+/// gaps on both sides rather than niri's flush-left one, because wlroots
+/// follows the wlr-layer-shell spec literally: an undersized surface
+/// anchored to both opposing edges gets centered on that axis, where niri
+/// just anchors it to the one edge and leaves the rest of the row empty.
 fn primary_monitor_width() -> u32 {
     niri_monitor_width()
+        .or_else(sway_monitor_width)
         .or_else(|| {
             compositors::detect().ok().and_then(|c| {
                 let monitors = c.monitors();
@@ -73,6 +81,56 @@ fn niri_monitor_width() -> Option<u32> {
         .values()
         .find_map(|o| o.get("logical")?.get("width")?.as_u64())
         .map(|w| w as u32)
+}
+
+/// Reads the focused output's logical width from Sway over its native
+/// i3-ipc socket (`$SWAYSOCK`) — `helium_wsl::compositors::detect()` has no
+/// Sway backend whatsoever, Hyprland or niri only, so this is additive
+/// rather than a workaround for a broken upstream parse like
+/// `niri_monitor_width()` above. Speaks the protocol directly (magic bytes
+/// + native-endian length/type header, per Sway's own `IPC` documentation)
+/// rather than shelling out to `swaymsg`, the same reasoning `hypr_command`/
+/// `niri_command` below already use for their compositors.
+fn sway_monitor_width() -> Option<u32> {
+    const GET_OUTPUTS: u32 = 3;
+    let body = sway_command(GET_OUTPUTS, b"")?;
+    let outputs: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    let outputs = outputs.as_array()?;
+    outputs
+        .iter()
+        .find(|o| o.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+        .or_else(|| outputs.iter().find(|o| o.get("active").and_then(|v| v.as_bool()).unwrap_or(false)))
+        .or_else(|| outputs.first())
+        .and_then(|o| o.get("rect")?.get("width")?.as_u64())
+        .map(|w| w as u32)
+}
+
+/// Sends one i3-ipc request to Sway's control socket and returns the raw
+/// reply payload. Header format is 6 magic bytes (`b"i3-ipc"`) + a 4-byte
+/// payload length + a 4-byte message type, both in the machine's native
+/// byte order (client and server always run on the same host, so the
+/// protocol doesn't bother specifying one) — same shape for the reply,
+/// immediately followed by `length` bytes of JSON.
+fn sway_command(msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let sock_path = std::env::var("SWAYSOCK").ok()?;
+    let mut stream = UnixStream::connect(&sock_path).ok()?;
+
+    let mut request = Vec::with_capacity(14 + payload.len());
+    request.extend_from_slice(b"i3-ipc");
+    request.extend_from_slice(&(payload.len() as u32).to_ne_bytes());
+    request.extend_from_slice(&msg_type.to_ne_bytes());
+    request.extend_from_slice(payload);
+    stream.write_all(&request).ok()?;
+
+    let mut header = [0u8; 14];
+    std::io::Read::read_exact(&mut stream, &mut header).ok()?;
+    if &header[0..6] != b"i3-ipc" {
+        return None;
+    }
+    let len = u32::from_ne_bytes(header[6..10].try_into().ok()?) as usize;
+    let mut body = vec![0u8; len];
+    std::io::Read::read_exact(&mut stream, &mut body).ok()?;
+    Some(body)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

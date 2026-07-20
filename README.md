@@ -170,7 +170,11 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
 
 - A running Wayland session with `$WAYLAND_DISPLAY` set.
 - Hyprland or niri (for workspace info and click-to-switch — the bar still
-  runs without either, just without that section updating).
+  runs without either, just without that section updating). The bar sizes
+  itself correctly on Sway too (`sway_monitor_width()` in `src/main.rs`
+  queries it directly over `$SWAYSOCK`), but workspace info/click-to-switch
+  stay Hyprland/niri-only since `helium_wsl::compositors::detect()` has no
+  Sway backend.
 - NetworkManager on D-Bus for the network segment, plus `nmtui` (part of
   NetworkManager) and one of `foot`/`kitty`/`alacritty`/`wezterm`/`xterm` for
   the network chip's click-to-open behavior.
