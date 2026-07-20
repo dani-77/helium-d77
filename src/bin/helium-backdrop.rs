@@ -7,14 +7,27 @@
 //! `OutputPolicy` defaults to `AllOutputs`, so simply not calling
 //! `.output_policy()` already gives every monitor its own instance — the
 //! same effect quickshell-d77 gets explicitly via `Variants { model:
-//! Quickshell.screens }`. Sized `0x0` with all four edges anchored: per the
-//! wlr-layer-shell protocol (see `SurfaceDimension`'s own doc comment in
-//! layer-shika-domain), that means "let the compositor assign the size",
-//! which is how background/wallpaper-daemon surfaces are meant to size
-//! themselves — no manual per-monitor width/height query needed, unlike
-//! `primary_monitor_width()` in src/main.rs (which exists specifically
-//! because the *bar* can't use this trick: it only anchors three edges and
-//! needs an exact width, see that function's own doc comment for why).
+//! Quickshell.screens }`.
+//!
+//! Sizing does **not** rely on the wlr-layer-shell "size 0x0 + anchor all
+//! four edges = let the compositor assign the size" convention, even
+//! though `SurfaceDimension`'s own doc comment in layer-shika-domain
+//! documents exactly that as the intended idiom for background surfaces:
+//! confirmed on a real Hyprland session that it doesn't reliably propagate
+//! into the actual rendered Slint content here — the backdrop showed up
+//! pinned to a small square in the top-left corner (matching this file's
+//! initial hardcoded `Window` size) instead of filling the screen. Instead,
+//! `resize_backdrop_to_outputs()` below queries each connected monitor's
+//! real pixel resolution the same way the bar's `primary_monitor_width()`
+//! in src/main.rs already does (Hyprland/niri/Sway each have their own
+//! query — `helium_wsl::compositors` doesn't cover Sway at all and has a
+//! known bug for niri, see that function's doc comment), matches it to the
+//! right output by connector name (`OutputInfo::name()`, e.g. "eDP-1"),
+//! and calls `ShellControl::surface_by_name_and_output(...).resize(w, h)`
+//! explicitly — the same resize-via-timer mechanism `helium-osd` already
+//! relies on to grow from a 1x1 idle surface to its real size, which is
+//! known to correctly reach the rendered Slint content, unlike the
+//! implicit auto-fill path.
 //!
 //! Sits on `Layer::Bottom`, one step above the real `Layer::Background`
 //! layer where hyprpaper/swaybg/swww draw the actual wallpaper — same
@@ -33,11 +46,20 @@
 //! any client surface regardless — but this hasn't been confirmed against
 //! every compositor/setup, so flag it if you hit a case where it matters.
 //!
+//! Only already-connected outputs at startup are resized (a few retries a
+//! moment apart to cover output info not being known quite yet) — a
+//! monitor hot-plugged later keeps whatever size it started at, same
+//! single-point-in-time scope the bar's own monitor-width detection has.
+//!
 //! Not autostarted by helium-shell itself — add it to your compositor's
 //! autostart alongside helium-osd (see the README's OSD section for the
 //! exact syntax on Hyprland/niri).
 
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 use layer_shika::calloop::TimeoutAction;
@@ -61,6 +83,128 @@ fn has_wallpaper() -> bool {
     let Ok(contents) = std::fs::read_to_string(state_file_path()) else { return false };
     let path = contents.trim();
     !path.is_empty() && Path::new(path).is_file()
+}
+
+/// Real pixel width/height of every connected monitor, keyed by its
+/// connector name (e.g. "eDP-1", "DP-2") — the same name `OutputInfo::
+/// name()` reports for a `wl_output`, so the two can be matched up in
+/// `resize_backdrop_to_outputs()`. See this file's own top doc comment for
+/// why this is queried directly instead of trusting layer-shika's
+/// automatic output-fill sizing.
+fn compositor_monitors() -> HashMap<String, (u32, u32)> {
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        hyprland_monitors()
+    } else if std::env::var("SWAYSOCK").is_ok() {
+        sway_monitors()
+    } else if std::env::var("NIRI_SOCKET").is_ok() {
+        niri_monitors()
+    } else {
+        HashMap::new()
+    }
+}
+
+/// Shells out to `hyprctl -j monitors` rather than talking to Hyprland's
+/// socket directly (unlike `hypr_command()` in src/main.rs, which is on a
+/// per-second timer and so avoids the subprocess overhead) — this only
+/// runs a handful of times right at startup, where simplicity wins.
+fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
+    let Ok(output) = Command::new("hyprctl").args(["-j", "monitors"]).output() else {
+        return HashMap::new();
+    };
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return HashMap::new();
+    };
+    let Some(list) = parsed.as_array() else { return HashMap::new() };
+    list.iter()
+        .filter_map(|m| {
+            let name = m.get("name")?.as_str()?.to_string();
+            let width = m.get("width")?.as_u64()? as u32;
+            let height = m.get("height")?.as_u64()? as u32;
+            Some((name, (width, height)))
+        })
+        .collect()
+}
+
+/// Same raw i3-ipc `GET_OUTPUTS` query as `sway_command()`/
+/// `sway_monitor_width()` in src/main.rs, duplicated here rather than
+/// shared — binaries under src/bin/ don't share modules with src/main.rs
+/// in this project (see helium-session/helium-locker/helium-osd for the
+/// same pattern) — extended to return every output's real size, not just
+/// the focused one.
+fn sway_monitors() -> HashMap<String, (u32, u32)> {
+    const GET_OUTPUTS: u32 = 3;
+    let Some(body) = sway_command(GET_OUTPUTS, b"") else { return HashMap::new() };
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return HashMap::new();
+    };
+    let Some(list) = parsed.as_array() else { return HashMap::new() };
+    list.iter()
+        .filter_map(|o| {
+            let name = o.get("name")?.as_str()?.to_string();
+            let width = o.get("rect")?.get("width")?.as_u64()? as u32;
+            let height = o.get("rect")?.get("height")?.as_u64()? as u32;
+            Some((name, (width, height)))
+        })
+        .collect()
+}
+
+fn sway_command(msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let sock_path = std::env::var("SWAYSOCK").ok()?;
+    let mut stream = UnixStream::connect(&sock_path).ok()?;
+
+    let mut request = Vec::with_capacity(14 + payload.len());
+    request.extend_from_slice(b"i3-ipc");
+    request.extend_from_slice(&(payload.len() as u32).to_ne_bytes());
+    request.extend_from_slice(&msg_type.to_ne_bytes());
+    request.extend_from_slice(payload);
+    stream.write_all(&request).ok()?;
+
+    let mut header = [0u8; 14];
+    stream.read_exact(&mut header).ok()?;
+    if &header[0..6] != b"i3-ipc" {
+        return None;
+    }
+    let len = u32::from_ne_bytes(header[6..10].try_into().ok()?) as usize;
+    let mut body = vec![0u8; len];
+    stream.read_exact(&mut body).ok()?;
+    Some(body)
+}
+
+/// Same raw JSON-over-socket `Outputs` query as `niri_command()`/
+/// `niri_monitor_width()` in src/main.rs, duplicated here for the same
+/// reason `sway_monitors()` above duplicates its Sway counterpart —
+/// extended to return every output keyed by its own connector name
+/// (the JSON object's key) instead of bailing unless there's exactly one.
+fn niri_monitors() -> HashMap<String, (u32, u32)> {
+    let Some(reply) = niri_command(r#"{"Outputs":null}"#) else { return HashMap::new() };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim()) else {
+        return HashMap::new();
+    };
+    let Some(outputs) =
+        value.get("Ok").and_then(|v| v.get("Outputs")).and_then(|v| v.as_object())
+    else {
+        return HashMap::new();
+    };
+    outputs
+        .iter()
+        .filter_map(|(name, o)| {
+            let logical = o.get("logical")?;
+            let width = logical.get("width")?.as_u64()? as u32;
+            let height = logical.get("height")?.as_u64()? as u32;
+            Some((name.clone(), (width, height)))
+        })
+        .collect()
+}
+
+fn niri_command(req: &str) -> Option<String> {
+    let path = std::env::var("NIRI_SOCKET").ok()?;
+    let mut stream = UnixStream::connect(&path).ok()?;
+    stream.write_all(req.as_bytes()).ok()?;
+    stream.write_all(b"\n").ok()?;
+    let mut reader = std::io::BufReader::new(stream);
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut reader, &mut line).ok()?;
+    Some(line)
 }
 
 const SOURCE: &str = r#"
@@ -113,6 +257,9 @@ export component Backdrop inherits Window {
 }
 "#;
 
+const RESIZE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+const RESIZE_MAX_ATTEMPTS: u32 = 6;
+
 fn main() -> Result<()> {
     let mut shell = Shell::from_source(SOURCE)
         .surface("Backdrop")
@@ -123,6 +270,7 @@ fn main() -> Result<()> {
         .build()?;
 
     let event_loop = shell.event_loop_handle();
+    let control = shell.control();
     let mut last = has_wallpaper();
 
     // Seed every already-connected output's instance before the first poll,
@@ -131,6 +279,33 @@ fn main() -> Result<()> {
     shell.with_all_surfaces(|_name, instance| {
         instance.set_property("has_wallpaper", Value::Bool(last)).ok();
     });
+
+    // Explicitly resize each output's own Backdrop instance to that
+    // output's real pixel resolution — see this file's top doc comment for
+    // why the automatic "0x0 + anchor all edges" fill isn't trusted here.
+    // Retries a few times a moment apart in case an output's name/handle
+    // isn't known to layer-shika quite yet on the very first tick.
+    let mut resize_attempts = 0u32;
+    event_loop.add_timer(RESIZE_RETRY_INTERVAL, move |_, app_state| {
+        resize_attempts += 1;
+        let monitors = compositor_monitors();
+        let mut all_matched = !monitors.is_empty();
+        for info in app_state.all_output_info() {
+            match info.name().and_then(|name| monitors.get(name)) {
+                Some(&(width, height)) => {
+                    let _ = control
+                        .surface_by_name_and_output("Backdrop", info.handle())
+                        .resize(width, height);
+                }
+                None => all_matched = false,
+            }
+        }
+        if all_matched || resize_attempts >= RESIZE_MAX_ATTEMPTS {
+            TimeoutAction::Drop
+        } else {
+            TimeoutAction::ToDuration(RESIZE_RETRY_INTERVAL)
+        }
+    })?;
 
     event_loop.add_timer(POLL_INTERVAL, move |_, app_state| {
         let now = has_wallpaper();
