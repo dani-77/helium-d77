@@ -32,6 +32,8 @@ package() {
 	install -Dm755 target/release/helium-launcher "$pkgdir/usr/bin/helium-launcher"
 	install -Dm755 target/release/helium-session "$pkgdir/usr/bin/helium-session"
 	install -Dm755 target/release/helium-osd "$pkgdir/usr/bin/helium-osd"
+	install -Dm755 target/release/helium-wallpaper "$pkgdir/usr/bin/helium-wallpaper"
+	install -Dm755 target/release/helium-backdrop "$pkgdir/usr/bin/helium-backdrop"
 
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

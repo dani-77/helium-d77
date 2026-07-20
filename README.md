@@ -95,6 +95,87 @@ text field needed here, unlike the launcher, so no `TextInput`). Clicking a
 button still works too. Opened by clicking the power icon in the bar, or
 bind it to a key the same way as the launcher above.
 
+## Wallpaper picker (`helium-wallpaper`)
+
+A grid-style wallpaper picker, mirroring quickshell-d77's own Wallpaper.qml.
+Scans `$HOME/Wallpaper` (override with `HELIUM_WALLPAPER_DIR`) for
+`png`/`jpg`/`jpeg`/`webp`/`bmp` files and shows them as a scrollable grid of
+thumbnails. Clicking one applies it immediately by shelling out to whichever
+backend the running compositor actually has — `hyprctl hyprpaper` on
+Hyprland, `swaymsg output ... bg` on Sway, or a `swww`/`swaybg`/`feh`
+fallback chain everywhere else (niri included, since it has no wallpaper
+daemon of its own) — the same compositor-detection precedence
+`switch_workspace()` in `src/main.rs` uses. The active thumbnail gets a
+green border; "Clear" removes the wallpaper and un-highlights it.
+
+Unlike the launcher/session menu, clicking a thumbnail doesn't close the
+window — it stays open so you can keep previewing, matching
+quickshell-d77's own behavior. Only Escape closes it. There's no bar icon
+for it (quickshell-d77 doesn't have one either); bind it directly to a key:
+
+```
+bind = SUPER, W, exec, /usr/bin/helium-wallpaper
+```
+
+The chosen path is persisted to `~/.cache/helium/wallpaper/current` and
+restored on the next login by running the binary with `--startup` from your
+compositor's autostart, *after* the wallpaper daemon itself has started
+(e.g. after `exec-once = hyprpaper` on Hyprland, or after `swww-daemon`/
+`swaybg` elsewhere):
+
+```
+# Hyprland (hyprland.conf)
+exec-once = hyprpaper
+exec-once = /usr/bin/helium-wallpaper --startup
+
+# niri (config.kdl), after swww-daemon or similar
+spawn-at-startup "/usr/bin/helium-wallpaper" "--startup"
+```
+
+Because this always reapplies *after* the daemon has already started
+(unlike quickshell-d77's Hyprland-specific `apply-saved-wallpaper.sh`, which
+rewrites `hyprpaper.conf` *before* hyprpaper starts), a brief flash of
+hyprpaper's own default background is possible on Hyprland specifically
+before `--startup` catches up.
+
+## Backdrop (`helium-backdrop`)
+
+A decorative full-screen background — solid fill plus a couple of green
+accent panels — shown only while no wallpaper is set (before you've picked
+one via `helium-wallpaper`, or after clearing one), mirroring
+quickshell-d77/fabric-d77's own Backdrop. Sits on the Wayland `Bottom`
+layer, one step above where hyprpaper/swaybg/swww draw the real wallpaper
+on `Background`, and polls the same `~/.cache/helium/wallpaper/current`
+state file `helium-wallpaper` writes (every 2s) to hide itself the moment a
+wallpaper gets applied — no restart needed.
+
+One surface per connected monitor comes for free from `layer-shika`'s
+default output policy (`AllOutputs`), the same effect quickshell-d77 gets
+via `Variants { model: Quickshell.screens }`. It's sized `0x0` with all
+four edges anchored, which per the wlr-layer-shell protocol means "let the
+compositor assign the size" — the standard way background/wallpaper-daemon
+surfaces size themselves, so unlike the bar there's no need to query each
+monitor's resolution by hand.
+
+**Caveat**: `layer-shika` has no input-region/click-through API, so unlike
+quickshell-d77's Backdrop.qml (which explicitly sets an empty `mask`), this
+surface does claim pointer input over the area it covers. In a tiling
+compositor with no desktop-icon manager that's the same area hyprpaper/
+swaybg/swww already claim whenever a wallpaper *is* set, so it shouldn't
+change anything in practice — but it hasn't been confirmed against every
+compositor/setup, so flag it if you hit a case where it matters.
+
+Not autostarted by helium-shell itself — same as `helium-osd`, add it to
+your compositor's autostart:
+
+```
+# Hyprland (hyprland.conf)
+exec-once = /usr/bin/helium-backdrop
+
+# niri (config.kdl)
+spawn-at-startup "/usr/bin/helium-backdrop"
+```
+
 ## Locker (`helium-locker`)
 
 A native screen locker, unlike the `hyprlock`/`loginctl` shell-outs the
@@ -199,8 +280,14 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   isn't installed by `make install` right now — see Locker below; `pam-libs`,
   already pulled in by anything else using PAM on your system, covers it at
   runtime).
-- For `helium-osd`: same Wayland/layer-shell support the bar itself needs —
-  nothing extra.
+- For `helium-osd`/`helium-backdrop`: same Wayland/layer-shell support the
+  bar itself needs — nothing extra.
+- For `helium-wallpaper`/`helium-backdrop`: at least one of `hyprctl`
+  (Hyprland, via hyprpaper), `swaymsg` (Sway), or `swww`/`swaybg`/`feh`
+  (everywhere else, niri included) actually installed and running, or
+  clicking a thumbnail won't visibly do anything. Neither binary requires
+  a specific one at build time — the compositor/backend is only detected
+  at runtime.
 - For `helium-locker` (optional, build-and-install-by-hand only — see
   Locker below): a compositor with `ext-session-lock-v1` support that
   doesn't hit the niri incompatibility described there, and the PAM service
@@ -222,17 +309,20 @@ sudo make uninstall
   running system.
 - Needs `make` and everything listed under Requirements above (cargo, the
   `-devel` packages, since `install` always builds first).
-- Installs `helium-shell`, `helium-launcher`, `helium-session`, and
-  `helium-osd` to `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately
-  left out — see Locker above for installing it by hand.
-- `helium-shell` needs autostarting by your compositor as usual; `helium-osd`
-  additionally needs its own autostart entry (see OSD above) — the bar
-  doesn't launch it for you.
+- Installs `helium-shell`, `helium-launcher`, `helium-session`,
+  `helium-osd`, `helium-wallpaper`, and `helium-backdrop` to
+  `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately left out — see
+  Locker above for installing it by hand.
+- `helium-shell` needs autostarting by your compositor as usual;
+  `helium-osd` and `helium-backdrop` additionally need their own autostart
+  entries (see their sections above) — the bar doesn't launch either for
+  you. `helium-wallpaper` is spawn-on-demand via a keybind, same as
+  `helium-launcher`/`helium-session`.
 
 ## Packaging
 
 Draft packaging templates live under `packaging/`: `packaging/void/template`
-(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same four binaries
+(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same six binaries
 `make install` does (`helium-locker` stays out for the reason in Locker
 above) and need their checksum/`sha256sums` filled in once a version is
 actually tagged upstream.
@@ -256,7 +346,12 @@ config included.
   sides) is a constant (`MARGIN`) in the same file if you want it different.
 - **Colors/fonts**: everything lives in `ui/bar.slint`; the bar reuses the
   dark/green palette from Helium's own examples (`#0d0d0d` / `#141414`
-  background, `#76b900` accent).
+  background, `#76b900` accent). `helium-wallpaper`/`helium-backdrop` reuse
+  the same palette in their own generated Slint source (see the constants
+  and `build_slint_source()`/`SOURCE` in their respective `src/bin/` files).
+- **Wallpaper directory**: `helium-wallpaper` scans `$HOME/Wallpaper` by
+  default — set `HELIUM_WALLPAPER_DIR` to point it elsewhere instead of
+  moving/symlinking your wallpapers to match.
 - **Sections**: add more properties to the `Bar` component and set them from
   `src/main.rs` the same way the existing ones are — via `shell.set(...)` /
   `ctx.set(...)`.
