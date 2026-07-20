@@ -1,6 +1,6 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 pkgname=helium-shell
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc="A personal Wayland status bar built with the Helium shell framework"
 arch=('x86_64')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
 makedepends=('cargo' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('d08d581360aa071af34df82bf5e8b9e07db57be7040c7cbe6402a3727ff2bfb4')
+sha256sums=('4db6b2aef0e39f3141f0bc109c518b677fc6281c8365115e3b65a2902c9069e8')
 
 prepare() {
 	cd "helium-d77-$pkgver"
