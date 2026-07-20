@@ -9,25 +9,31 @@
 //! same effect quickshell-d77 gets explicitly via `Variants { model:
 //! Quickshell.screens }`.
 //!
-//! Sizing does **not** rely on the wlr-layer-shell "size 0x0 + anchor all
-//! four edges = let the compositor assign the size" convention, even
-//! though `SurfaceDimension`'s own doc comment in layer-shika-domain
-//! documents exactly that as the intended idiom for background surfaces:
-//! confirmed on a real Hyprland session that it doesn't reliably propagate
-//! into the actual rendered Slint content here — the backdrop showed up
-//! pinned to a small square in the top-left corner (matching this file's
-//! initial hardcoded `Window` size) instead of filling the screen. Instead,
-//! `resize_backdrop_to_outputs()` below queries each connected monitor's
-//! real pixel resolution the same way the bar's `primary_monitor_width()`
-//! in src/main.rs already does (Hyprland/niri/Sway each have their own
-//! query — `helium_wsl::compositors` doesn't cover Sway at all and has a
-//! known bug for niri, see that function's doc comment), matches it to the
-//! right output by connector name (`OutputInfo::name()`, e.g. "eDP-1"),
-//! and calls `ShellControl::surface_by_name_and_output(...).resize(w, h)`
-//! explicitly — the same resize-via-timer mechanism `helium-osd` already
-//! relies on to grow from a 1x1 idle surface to its real size, which is
-//! known to correctly reach the rendered Slint content, unlike the
-//! implicit auto-fill path.
+//! Sized via the wlr-layer-shell "size 0x0 + anchor all four edges = let
+//! the compositor assign the size" convention (see `SurfaceDimension`'s own
+//! doc comment in layer-shika-domain) — the default when `.size()` is never
+//! called on the surface builder, so nothing below needs to request it
+//! explicitly. This idiom was *not* the cause of the backdrop once showing
+//! up pinned to a small square in the top-left corner on Hyprland: the
+//! wlr-layer-shell surface itself was already being sized correctly the
+//! whole time (confirmed via `hyprctl -j layers`). The real cause was this
+//! component's own root `Window` explicitly declaring `width`/`height` as
+//! fixed literals — Slint treats an explicit size on the root element as
+//! authoritative, so the *rendered content* stayed pinned to that literal
+//! size no matter what size the surface itself grew to. Leaving `width`/
+//! `height` undeclared here (as `ui/osd.slint`'s root `Window` already
+//! does) lets the backend's `resize()`/`set_size()` calls actually reach
+//! the rendered content, same as `helium-osd`'s surface.
+//!
+//! `resize_backdrop_to_outputs()` below still explicitly queries each
+//! monitor's real pixel resolution and resizes each output's instance to
+//! match, the same way the bar's `primary_monitor_width()` in src/main.rs
+//! does (Hyprland/niri/Sway each have their own query — `helium_wsl::
+//! compositors` doesn't cover Sway at all and has a known bug for niri,
+//! see that function's doc comment) — now redundant with the anchor-based
+//! auto-fill above (both should agree on the same size), kept as an
+//! explicit belt-and-suspenders in case some compositor's "0x0 + anchor
+//! all" handling turns out to need it after all.
 //!
 //! Sits on `Layer::Bottom`, one step above the real `Layer::Background`
 //! layer where hyprpaper/swaybg/swww draw the actual wallpaper — same
@@ -209,8 +215,6 @@ fn niri_command(req: &str) -> Option<String> {
 
 const SOURCE: &str = r#"
 export component Backdrop inherits Window {
-    width: 100px;
-    height: 100px;
     background: transparent;
 
     in property <bool> has_wallpaper: false;
@@ -244,14 +248,20 @@ export component Backdrop inherits Window {
             background: #1f3319;
         }
 
-        Text {
+        // d77 emblem in the bottom-left corner, mirroring quickshell-d77's
+        // Backdrop.qml logo placement (same 48px margins, same 0.25
+        // opacity) but recolored to this project's green accent instead of
+        // that one's purple — the source SVG is a plain black silhouette
+        // with the emblem shape carried entirely in its alpha channel, so
+        // `colorize` can retint it to any accent color directly.
+        Image {
             x: 48px;
-            y: parent.height - 80px;
-            text: "helium";
-            color: #76b900;
+            y: parent.height - 48px - 130px;
+            width: 130px;
+            height: 130px;
+            source: @image-url("/usr/share/helium-d77/d77-logo.svg");
+            colorize: #76b900;
             opacity: 0.25;
-            font-size: 26px;
-            font-family: "Space Grotesk";
         }
     }
 }
@@ -265,7 +275,7 @@ fn main() -> Result<()> {
         .surface("Backdrop")
         .anchor(AnchorEdges::all())
         .layer(Layer::Bottom)
-        .exclusive_zone(0)
+        .exclusive_zone(-1)
         .keyboard_interactivity(KeyboardInteractivity::None)
         .build()?;
 

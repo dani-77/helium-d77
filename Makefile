@@ -19,7 +19,8 @@
 PREFIX  ?= /usr
 DESTDIR ?=
 
-BINDIR := $(DESTDIR)$(PREFIX)/bin
+BINDIR  := $(DESTDIR)$(PREFIX)/bin
+SHAREDIR := $(DESTDIR)$(PREFIX)/share/helium-d77
 
 BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop
 
@@ -33,9 +34,11 @@ build:
 install: build
 	install -d $(BINDIR)
 	$(foreach bin,$(BINS),install -Dm755 target/release/$(bin) $(BINDIR)/$(bin);)
+	install -Dm644 assets/d77-logo.svg $(SHAREDIR)/d77-logo.svg
 
 uninstall:
 	$(foreach bin,$(BINS),rm -f $(BINDIR)/$(bin);)
+	rm -f $(SHAREDIR)/d77-logo.svg
 
 clean:
 	cargo clean

@@ -145,9 +145,14 @@ fn detect_compositor() -> Compositor {
 /// doesn't otherwise track per-monitor state (see the bar's own
 /// single-primary-monitor width handling in src/main.rs), so a single
 /// shared wallpaper across all outputs keeps that same scope.
+///
+/// Only persists on success: persisting unconditionally would let
+/// `has_wallpaper()` (in helium-backdrop.rs) believe a wallpaper is active
+/// and hide the backdrop even when the backend command actually failed,
+/// leaving a plain black screen behind it — nothing drawing the
+/// wallpaper *and* the backdrop gone.
 fn apply_wallpaper(path: &str) {
-    persist_wallpaper(path);
-    match detect_compositor() {
+    let applied = match detect_compositor() {
         Compositor::Hyprland => {
             // Empty monitor name + comma applies to every monitor (see
             // set-wallpaper.sh's own comment on this hyprctl syntax).
@@ -156,25 +161,37 @@ fn apply_wallpaper(path: &str) {
                 .args(["hyprpaper", "wallpaper", &arg])
                 .status()
                 .is_ok_and(|s| s.success());
-            if !ok {
+            if ok {
+                true
+            } else {
                 // Not preloaded yet — preload once, then retry.
                 let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
-                let _ = Command::new("hyprctl").args(["hyprpaper", "wallpaper", &arg]).status();
+                Command::new("hyprctl")
+                    .args(["hyprpaper", "wallpaper", &arg])
+                    .status()
+                    .is_ok_and(|s| s.success())
             }
         }
-        Compositor::Sway => {
-            let _ = Command::new("swaymsg").args(["output", "*", "bg", path, "fill"]).status();
-        }
+        Compositor::Sway => Command::new("swaymsg")
+            .args(["output", "*", "bg", path, "fill"])
+            .status()
+            .is_ok_and(|s| s.success()),
         Compositor::Generic => {
             if command_exists("swww") {
-                let _ = Command::new("swww").args(["img", path]).status();
+                Command::new("swww").args(["img", path]).status().is_ok_and(|s| s.success())
             } else if command_exists("swaybg") {
                 let _ = Command::new("pkill").arg("swaybg").status();
-                let _ = Command::new("swaybg").args(["-i", path, "-m", "fill"]).spawn();
+                Command::new("swaybg").args(["-i", path, "-m", "fill"]).spawn().is_ok()
             } else if command_exists("feh") {
-                let _ = Command::new("feh").args(["--bg-fill", path]).status();
+                Command::new("feh").args(["--bg-fill", path]).status().is_ok_and(|s| s.success())
+            } else {
+                false
             }
         }
+    };
+
+    if applied {
+        persist_wallpaper(path);
     }
 }
 
