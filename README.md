@@ -223,6 +223,14 @@ sudo make uninstall
   additionally needs its own autostart entry (see OSD above) — the bar
   doesn't launch it for you.
 
+## Packaging
+
+Draft packaging templates live under `packaging/`: `packaging/void/template`
+(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same four binaries
+`make install` does (`helium-locker` stays out for the reason in Locker
+above) and need their checksum/`sha256sums` filled in once a version is
+actually tagged upstream.
+
 ## Running
 
 ```sh

@@ -1,0 +1,30 @@
+# Template file for 'helium-shell'
+pkgname=helium-shell
+version=0.1.0
+revision=1
+build_style=cargo
+hostmakedepends="pkg-config"
+makedepends="wayland-devel libxkbcommon-devel fontconfig-devel freetype-devel pam-devel"
+depends="pam-libs"
+short_desc="Personal Wayland status bar built with the Helium shell framework"
+maintainer="Daniel Azevedo <daniazevedo77@posteo.net>"
+license="MIT"
+homepage="https://github.com/dani-77/helium-d77"
+distfiles="https://github.com/dani-77/helium-d77/archive/refs/tags/v${version}.tar.gz"
+# No upstream release is tagged yet -- run `xbps-src fetch helium-shell` and
+# `xbps-digest` (or `xbps-src hash`) against v${version} once it exists, and
+# drop the real value in here.
+checksum=REPLACE_WITH_SHA256_ONCE_v${version}_IS_TAGGED
+
+# build_style=cargo's default do_install only installs a single binary named
+# ${pkgname}. This crate produces four -- mirrors the Makefile's BINS, which
+# deliberately leaves out helium-locker (see the README's Locker section for
+# the upstream niri/layer-shika incompatibility that keeps it out of
+# `make install` too).
+do_install() {
+	vbin target/release/helium-shell
+	vbin target/release/helium-launcher
+	vbin target/release/helium-session
+	vbin target/release/helium-osd
+	vlicense LICENSE
+}
