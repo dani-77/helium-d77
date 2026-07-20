@@ -1,0 +1,37 @@
+# Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
+pkgname=helium-shell
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A personal Wayland status bar built with the Helium shell framework"
+arch=('x86_64')
+url="https://github.com/dani-77/helium-d77"
+license=('MIT')
+depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
+makedepends=('cargo' 'pkgconf' 'git')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
+sha256sums=('REPLACE_WITH_SHA256')
+
+prepare() {
+	cd "helium-d77-$pkgver"
+	cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+	cd "helium-d77-$pkgver"
+	export RUSTUP_TOOLCHAIN=stable
+	cargo build --frozen --release
+}
+
+package() {
+	cd "helium-d77-$pkgver"
+
+	# Mirrors the Makefile's BINS -- helium-locker is deliberately left out
+	# (see the README's Locker section for the upstream niri/layer-shika
+	# incompatibility that keeps it out of `make install` too).
+	install -Dm755 target/release/helium-shell "$pkgdir/usr/bin/helium-shell"
+	install -Dm755 target/release/helium-launcher "$pkgdir/usr/bin/helium-launcher"
+	install -Dm755 target/release/helium-session "$pkgdir/usr/bin/helium-session"
+	install -Dm755 target/release/helium-osd "$pkgdir/usr/bin/helium-osd"
+
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
