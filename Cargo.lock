@@ -1597,6 +1597,7 @@ dependencies = [
  "helium-wsl",
  "layer-shika",
  "pam-client2",
+ "serde_json",
  "tokio",
  "zbus 4.4.0",
  "zvariant 4.2.0",

@@ -270,6 +270,17 @@ config included.
   deserializes it as `Vec<OwnedValue>` (expects `av`), so the call always
   errors. `src/network.rs` reimplements the NetworkManager queries directly
   with the correct type.
+- **`helium_wsl::compositors::niri::Niri::monitors()` is broken upstream.**
+  It deserializes each output's `current_mode` as an inline `{width,
+  height}` object, but niri actually reports it as an integer index into
+  the output's own `modes` array — the type mismatch makes
+  `serde_json::from_value` fail silently for every real niri output, so
+  `monitors()` always returns an empty `Vec`. `primary_monitor_width()` in
+  `src/main.rs` used to fall through to `FALLBACK_MONITOR_WIDTH` (1366) on
+  every niri machine as a result, rendering the bar visibly too narrow
+  regardless of actual screen size. `niri_monitor_width()` now queries
+  niri's `Outputs` IPC directly and reads `logical.width` instead (already
+  scale-adjusted, unlike resolving the mode index).
 - **Bluetooth is not wired into this bar** (dropped in favor of CPU/RAM/
   battery/volume). `helium_wsl::services::bluetooth` still works standalone if
   you want to add it back — see `docs/services.md` in the helium-wsl repo.

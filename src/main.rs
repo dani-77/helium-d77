@@ -23,18 +23,56 @@ const FALLBACK_MONITOR_WIDTH: u32 = 1366;
 /// surface so part of it renders off-screen. Deriving the width from the
 /// real monitor guarantees the requested size and the anchor-stretched size
 /// always agree, on any screen.
+///
+/// Tries `niri_monitor_width()` first — see its doc comment for why
+/// `helium_wsl`'s own niri monitor detection can't be trusted — falling
+/// back to `compositors::detect()` (Hyprland, or niri if the direct IPC
+/// query itself failed) before finally giving up on the hardcoded default.
 fn primary_monitor_width() -> u32 {
-    compositors::detect()
-        .ok()
-        .and_then(|c| {
-            let monitors = c.monitors();
-            monitors
-                .iter()
-                .find(|m| m.primary)
-                .or_else(|| monitors.first())
-                .map(|m| m.width)
+    niri_monitor_width()
+        .or_else(|| {
+            compositors::detect().ok().and_then(|c| {
+                let monitors = c.monitors();
+                monitors
+                    .iter()
+                    .find(|m| m.primary)
+                    .or_else(|| monitors.first())
+                    .map(|m| m.width)
+            })
         })
         .unwrap_or(FALLBACK_MONITOR_WIDTH)
+}
+
+/// Reads the focused/primary output's logical width straight from niri's
+/// `Outputs` IPC, bypassing `helium_wsl::compositors::niri::Niri::monitors()`
+/// entirely: that backend deserializes each output's `current_mode` as an
+/// inline `{width, height}` object, but niri actually reports it as an
+/// integer *index* into the output's own `modes` array (confirmed against a
+/// live niri instance — see the raw `Outputs` reply). The type mismatch
+/// makes `serde_json::from_value::<NiriOutput>` fail for every real niri
+/// output, so `monitors()` silently returns an empty `Vec` and
+/// `primary_monitor_width()` fell through to `FALLBACK_MONITOR_WIDTH` on
+/// every niri machine, regardless of actual screen size — the bar rendered
+/// ~30% too narrow with the rest of the row left empty. `logical.width` here
+/// is already scale-adjusted, which is what a layer-shell surface needs
+/// anyway (resolving `modes[current_mode].width` would give physical
+/// pixels instead).
+///
+/// Returns `None` (rather than picking arbitrarily) whenever there's more
+/// than one output, since niri's `Outputs` reply has no "primary" concept
+/// to disambiguate — that case falls back to `compositors::detect()` above,
+/// same as before this fix existed.
+fn niri_monitor_width() -> Option<u32> {
+    let reply = niri_command(r#"{"Outputs":null}"#)?;
+    let value: serde_json::Value = serde_json::from_str(reply.trim()).ok()?;
+    let outputs = value.get("Ok")?.get("Outputs")?.as_object()?;
+    if outputs.len() != 1 {
+        return None;
+    }
+    outputs
+        .values()
+        .find_map(|o| o.get("logical")?.get("width")?.as_u64())
+        .map(|w| w as u32)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

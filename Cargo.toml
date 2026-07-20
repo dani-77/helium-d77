@@ -11,6 +11,10 @@ helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
 zbus = "4"
 zvariant = "4"
 tokio = { version = "1", features = ["rt"] }
+# Direct dependency so primary_monitor_width() can query niri's Outputs IPC
+# itself, working around a parsing bug in helium-wsl's niri backend — see
+# the comment on niri_monitor_width() in src/main.rs.
+serde_json = "1"
 
 # Direct dependency (rather than just helium-wsl's `raw` re-export) so
 # helium-locker can call `Shell::create_session_lock`, which helium-wsl's own
