@@ -21,7 +21,7 @@ DESTDIR ?=
 
 BINDIR := $(DESTDIR)$(PREFIX)/bin
 
-BINS := helium-shell helium-launcher helium-session helium-osd
+BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop
 
 .PHONY: all build install uninstall clean
 

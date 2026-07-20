@@ -14,7 +14,7 @@ distfiles="https://github.com/dani-77/helium-d77/archive/refs/tags/${version}.ta
 checksum=d08d581360aa071af34df82bf5e8b9e07db57be7040c7cbe6402a3727ff2bfb4
 
 # build_style=cargo's default do_install only installs a single binary named
-# ${pkgname}. This crate produces four -- mirrors the Makefile's BINS, which
+# ${pkgname}. This crate produces six -- mirrors the Makefile's BINS, which
 # deliberately leaves out helium-locker (see the README's Locker section for
 # the upstream niri/layer-shika incompatibility that keeps it out of
 # `make install` too).
@@ -23,6 +23,8 @@ do_install() {
 	vbin target/release/helium-launcher
 	vbin target/release/helium-session
 	vbin target/release/helium-osd
+	vbin target/release/helium-wallpaper
+	vbin target/release/helium-backdrop
 	vlicense LICENSE
 	vdoc README.md
 }
