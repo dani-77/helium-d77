@@ -105,6 +105,50 @@ fn sway_monitor_width() -> Option<u32> {
         .map(|w| w as u32)
 }
 
+/// Fetches workspace state directly from Sway's `GET_WORKSPACES` IPC message
+/// (msg type 1), the same way `sway_monitor_width()` above bypasses
+/// `helium_wsl::compositors::detect()` entirely (it has no Sway backend to
+/// bypass a bug in — Sway just isn't recognized at all).
+///
+/// `representation` is `null` exactly when a workspace has no windows (per
+/// Sway's own IPC docs), so it doubles as the `occupied` signal without a
+/// second `GET_TREE` round trip — `GET_WORKSPACES` doesn't populate `nodes`/
+/// `floating_nodes` on the workspace objects it returns, so those can't be
+/// used for this the way niri's `active_window_id` is.
+///
+/// Workspaces without a positive `num` (Sway assigns -1 to purely
+/// named workspaces with no numeric prefix) are skipped rather than forced
+/// into `Workspace::id: u32`, since click-to-switch here dispatches
+/// `workspace number N` and that command only makes sense for numbered
+/// workspaces anyway.
+fn sway_workspaces() -> Vec<Workspace> {
+    const GET_WORKSPACES: u32 = 1;
+    let Some(body) = sway_command(GET_WORKSPACES, b"") else { return vec![] };
+    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&body) else { return vec![] };
+    let Some(items) = raw.as_array() else { return vec![] };
+    items
+        .iter()
+        .filter_map(|w| {
+            let num = w.get("num")?.as_i64()?;
+            if num < 0 {
+                return None;
+            }
+            let name = w.get("name")?.as_str()?.to_string();
+            let active = w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false);
+            let occupied = !w.get("representation").map(|v| v.is_null()).unwrap_or(true);
+            let monitor = w.get("output").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            Some(Workspace {
+                id: num as u32,
+                name,
+                active,
+                occupied,
+                window_count: occupied as u32,
+                monitor,
+            })
+        })
+        .collect()
+}
+
 /// Sends one i3-ipc request to Sway's control socket and returns the raw
 /// reply payload. Header format is 6 magic bytes (`b"i3-ipc"`) + a 4-byte
 /// payload length + a 4-byte message type, both in the machine's native
@@ -157,9 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     shell.set("Bar", "bar_width", bar_width as i32);
 
     // Seed initial workspace state so the bar isn't blank before the first tick.
-    if let Ok(compositor) = compositors::detect() {
-        apply_workspaces(&mut shell, &compositor.workspaces());
-    }
+    apply_workspaces(&mut shell, &current_workspaces());
     if let Some(w) = weather::status() {
         shell.set("Bar", "weather_text", format!("{}  {}", w.condition, w.temperature));
     }
@@ -201,9 +243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "clock_text",
             helium_wsl::services::time::formatted("%a %d %b  %H:%M:%S"),
         );
-        if let Ok(compositor) = compositors::detect() {
-            apply_workspaces_ctx(ctx, &compositor.workspaces());
-        }
+        apply_workspaces_ctx(ctx, &current_workspaces());
         if let Some(pct) = sysinfo::cpu_usage_percent(&mut prev_cpu) {
             ctx.set("Bar", "cpu_text", format!("{pct}%"));
         }
@@ -371,7 +411,30 @@ fn switch_workspace(n: i32) {
         niri_command(&format!(
             r#"{{"Action":{{"FocusWorkspace":{{"reference":{{"Index":{n}}}}}}}}}"#
         ));
+        return;
     }
+
+    if std::env::var("SWAYSOCK").is_ok() {
+        const RUN_COMMAND: u32 = 0;
+        sway_command(RUN_COMMAND, format!("workspace number {n}").as_bytes());
+    }
+}
+
+/// Workspace list for whichever compositor is actually running.
+/// `compositors::detect()` covers Hyprland/niri; Sway needs its own direct
+/// query since helium-wsl doesn't recognize it as a compositor at all (see
+/// `sway_workspaces()`'s doc comment). Checking `compositors::detect()`
+/// first preserves the existing Hyprland-over-niri precedence
+/// `switch_workspace()` also follows — this only reaches the Sway branch
+/// once that call has already failed to find either.
+fn current_workspaces() -> Vec<Workspace> {
+    if let Ok(compositor) = compositors::detect() {
+        return compositor.workspaces();
+    }
+    if std::env::var("SWAYSOCK").is_ok() {
+        return sway_workspaces();
+    }
+    vec![]
 }
 
 /// Builds the `[WorkspaceItem]` model value for `ui/bar.slint`'s `workspaces`

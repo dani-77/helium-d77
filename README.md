@@ -4,6 +4,7 @@
 [![Wayland](https://img.shields.io/badge/wayland-layer--shell-blue?logo=wayland)](https://github.com/zepyxunderscore/helium-wsl)
 [![Hyprland](https://img.shields.io/badge/compositor-Hyprland-00b6b6)](https://hyprland.org)
 [![niri](https://img.shields.io/badge/compositor-niri-blueviolet)](https://github.com/YaLTeR/niri)
+[![Sway](https://img.shields.io/badge/compositor-Sway-88c0d0)](https://swaywm.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A personal Wayland status bar built on top of [Helium](https://github.com/zepyxunderscore/helium-wsl),
@@ -23,7 +24,7 @@ a rounded, floating pill anchored to the top of the screen.
   model built from the compositor's own workspace list, not a hardcoded
   count), active one highlighted green, a small dot marks
   occupied-but-inactive ones. Click a pill to switch to that workspace —
-  works on both Hyprland and Niri (see `switch_workspace()` in
+  works on Hyprland, Niri, and Sway (see `switch_workspace()` in
   `src/main.rs`). State is polled every second, not pushed via compositor
   events (see Limitations for why). The bar reserves real screen space
   (exclusive zone), so windows don't render underneath it.
@@ -169,12 +170,13 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
 ## Requirements
 
 - A running Wayland session with `$WAYLAND_DISPLAY` set.
-- Hyprland or niri (for workspace info and click-to-switch — the bar still
-  runs without either, just without that section updating). The bar sizes
-  itself correctly on Sway too (`sway_monitor_width()` in `src/main.rs`
-  queries it directly over `$SWAYSOCK`), but workspace info/click-to-switch
-  stay Hyprland/niri-only since `helium_wsl::compositors::detect()` has no
-  Sway backend.
+- Hyprland, niri, or Sway (for workspace info and click-to-switch — the bar
+  still runs without any of them, just without that section updating).
+  `helium_wsl::compositors::detect()` only knows Hyprland/niri, so Sway's
+  monitor width, workspace list, and click-to-switch are all implemented
+  directly in `src/main.rs` (`sway_monitor_width()`, `sway_workspaces()`,
+  the `SWAYSOCK` branch of `switch_workspace()`) over its native i3-ipc
+  socket instead.
 - NetworkManager on D-Bus for the network segment, plus `nmtui` (part of
   NetworkManager) and one of `foot`/`kitty`/`alacritty`/`wezterm`/`xterm` for
   the network chip's click-to-open behavior.
@@ -291,14 +293,20 @@ config included.
 - **Workspace click-to-switch talks to the compositor directly**, since
   Helium's `Compositor` trait has no dispatch/write API — `switch_workspace()`
   in `src/main.rs` branches on `$HYPRLAND_INSTANCE_SIGNATURE` /
-  `$NIRI_SOCKET` and speaks each compositor's own IPC. For Hyprland it tries
-  the standard textual IPC (`dispatch workspace N`) first, falling back to
-  `dispatch hl.dsp.focus({ workspace = N })` for Lua-config builds (e.g.
-  "hyprland-lua") that route dispatchers through Lua instead of the classic
-  `<dispatcher> <args>` protocol. For niri it sends a `FocusWorkspace`
-  action over `$NIRI_SOCKET`, using the workspace's own per-output `idx` as
-  helium-wsl reports it — not necessarily the same numbering niri's own UI
-  shows.
+  `$NIRI_SOCKET` / `$SWAYSOCK` and speaks each compositor's own IPC. For
+  Hyprland it tries the standard textual IPC (`dispatch workspace N`) first,
+  falling back to `dispatch hl.dsp.focus({ workspace = N })` for Lua-config
+  builds (e.g. "hyprland-lua") that route dispatchers through Lua instead of
+  the classic `<dispatcher> <args>` protocol. For niri it sends a
+  `FocusWorkspace` action over `$NIRI_SOCKET`, using the workspace's own
+  per-output `idx` as helium-wsl reports it — not necessarily the same
+  numbering niri's own UI shows. For Sway, since `helium_wsl` has no Sway
+  backend at all, both the listing (`sway_workspaces()`) and the switch
+  (`workspace number N` over i3-ipc) are implemented from scratch in
+  `src/main.rs` rather than routed through `helium_wsl::compositors`;
+  `sway_workspaces()` reads each workspace's `representation` field
+  (`null` exactly when it has no windows, per Sway's own IPC docs) for the
+  `occupied` dot instead of a second `GET_TREE` call.
 - Audio (beyond ALSA volume via `amixer`), power, and power-profiles services
   in helium-wsl itself are stubbed upstream and aren't used here.
 - **`helium_wsl::Helium::on_key` is still a stub** (`// todo: waiting on
