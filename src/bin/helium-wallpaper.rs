@@ -156,23 +156,61 @@ fn apply_wallpaper(path: &str) {
     apply_wallpaper_inner(path, false);
 }
 
+/// hyprpaper's own IPC socket: `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.hyprpaper.sock`.
+/// Its existence is a direct signal that hyprpaper has bound its socket —
+/// unlike blindly retrying `hyprctl hyprpaper`, which fails instantly (and
+/// indistinguishably from a real error) for as long as the socket isn't up
+/// yet. Falls back to `/run/user/<uid>` for `XDG_RUNTIME_DIR`, same as
+/// Hyprland itself does when the env var isn't set.
+fn hyprpaper_socket_path() -> Option<PathBuf> {
+    let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").ok().or_else(|| {
+        let uid = Command::new("id").arg("-u").output().ok()?;
+        let uid = String::from_utf8(uid.stdout).ok()?;
+        Some(format!("/run/user/{}", uid.trim()))
+    })?;
+    Some(PathBuf::from(runtime_dir).join("hypr").join(sig).join(".hyprpaper.sock"))
+}
+
+/// Blocks until hyprpaper's IPC socket exists, up to `timeout`. Used by
+/// `--startup` before touching `hyprctl hyprpaper` at all, since on a slow
+/// boot (disk/GPU driver init, several `exec-once` entries racing) hyprpaper
+/// can take much longer than a couple of seconds to bind its socket — and a
+/// fixed, small retry budget was exhausting itself before that ever
+/// happened, silently leaving no wallpaper applied. Polling the socket path
+/// directly means the common case (socket already up) returns immediately
+/// instead of always paying a fixed delay, while still tolerating a slow
+/// one via a generous ceiling.
+fn wait_for_hyprpaper_socket(timeout: Duration) {
+    let Some(sock) = hyprpaper_socket_path() else { return };
+    let start = std::time::Instant::now();
+    while !sock.exists() {
+        if start.elapsed() >= timeout {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// `retry_startup`: when true (only from `--startup`, which races
-/// `exec-once = hyprpaper` at login), keeps retrying the Hyprland branch
-/// for up to ~2s instead of giving up after one preload+retry. Right after
-/// login, `hyprpaper`'s own `exec-once` may not have its IPC socket bound
-/// yet by the time `--startup` runs — every `hyprctl hyprpaper` call fails
-/// instantly in that window, so the old single preload+retry could exhaust
-/// itself before the socket ever came up, silently leaving no wallpaper
-/// applied. Not applied to the interactive picker's click path, which would
-/// otherwise stall the UI for up to 2s on a genuine failure (e.g. hyprpaper
-/// not running at all).
+/// `exec-once = hyprpaper` at login), first waits (up to 20s) for
+/// hyprpaper's socket to exist via `wait_for_hyprpaper_socket()`, then
+/// retries the `hyprctl hyprpaper` calls themselves for a few more seconds
+/// as a safety net for the moment right after the socket binds, when
+/// hyprpaper may not yet be ready to answer IPC. Not applied to the
+/// interactive picker's click path, which would otherwise stall the UI for
+/// several seconds on a genuine failure (e.g. hyprpaper not running at
+/// all).
 fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
     let applied = match detect_compositor() {
         Compositor::Hyprland => {
+            if retry_startup {
+                wait_for_hyprpaper_socket(Duration::from_secs(20));
+            }
             // Empty monitor name + comma applies to every monitor (see
             // set-wallpaper.sh's own comment on this hyprctl syntax).
             let arg = format!(",{path}");
-            let attempts = if retry_startup { 10 } else { 1 };
+            let attempts = if retry_startup { 25 } else { 1 };
             let mut ok = false;
             for attempt in 0..attempts {
                 if attempt > 0 {
