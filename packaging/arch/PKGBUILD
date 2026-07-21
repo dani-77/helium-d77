@@ -9,7 +9,7 @@ license=('MIT')
 depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
 makedepends=('cargo' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('4db6b2aef0e39f3141f0bc109c518b677fc6281c8365115e3b65a2902c9069e8')
+sha256sums=('e9f1148863ac0c2d773bd16273dbb17b63e205def21e4221d580d642c20a0370')
 
 prepare() {
 	cd "helium-d77-$pkgver"
@@ -37,4 +37,5 @@ package() {
 	install -Dm644 assets/d77-logo.svg "$pkgdir/usr/share/helium-d77/d77-logo.svg"
 
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
