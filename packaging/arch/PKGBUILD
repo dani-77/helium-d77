@@ -2,7 +2,7 @@
 pkgname=helium-shell
 pkgver=0.1.4
 pkgrel=1
-pkgdesc="A personal Wayland status bar built with the Helium shell framework"
+pkgdesc="A Wayland shell built with the Helium shell framework"
 arch=('x86_64')
 url="https://github.com/dani-77/helium-d77"
 license=('MIT')
