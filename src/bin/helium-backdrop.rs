@@ -124,9 +124,16 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
     list.iter()
         .filter_map(|m| {
             let name = m.get("name")?.as_str()?.to_string();
-            let width = m.get("width")?.as_u64()? as u32;
-            let height = m.get("height")?.as_u64()? as u32;
-            Some((name, (width, height)))
+            // hyprctl reports physical mode width/height; layer-shell
+            // surfaces size themselves in logical (scale-adjusted)
+            // coordinates (same reasoning as primary_monitor_width() in
+            // src/main.rs), so divide by "scale" here too — otherwise a
+            // monitor with scale != 1.0 gets resize()'d larger than its
+            // logical size and Hyprland renders it offset/clipped.
+            let width = m.get("width")?.as_u64()? as f64;
+            let height = m.get("height")?.as_u64()? as f64;
+            let scale = m.get("scale").and_then(|v| v.as_f64()).unwrap_or(1.0).max(1.0);
+            Some((name, ((width / scale).round() as u32, (height / scale).round() as u32)))
         })
         .collect()
 }

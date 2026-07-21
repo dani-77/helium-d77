@@ -37,6 +37,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
+use std::time::Duration;
 
 struct WallpaperEntry {
     name: String,
@@ -152,25 +153,49 @@ fn detect_compositor() -> Compositor {
 /// leaving a plain black screen behind it — nothing drawing the
 /// wallpaper *and* the backdrop gone.
 fn apply_wallpaper(path: &str) {
+    apply_wallpaper_inner(path, false);
+}
+
+/// `retry_startup`: when true (only from `--startup`, which races
+/// `exec-once = hyprpaper` at login), keeps retrying the Hyprland branch
+/// for up to ~2s instead of giving up after one preload+retry. Right after
+/// login, `hyprpaper`'s own `exec-once` may not have its IPC socket bound
+/// yet by the time `--startup` runs — every `hyprctl hyprpaper` call fails
+/// instantly in that window, so the old single preload+retry could exhaust
+/// itself before the socket ever came up, silently leaving no wallpaper
+/// applied. Not applied to the interactive picker's click path, which would
+/// otherwise stall the UI for up to 2s on a genuine failure (e.g. hyprpaper
+/// not running at all).
+fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
     let applied = match detect_compositor() {
         Compositor::Hyprland => {
             // Empty monitor name + comma applies to every monitor (see
             // set-wallpaper.sh's own comment on this hyprctl syntax).
             let arg = format!(",{path}");
-            let ok = Command::new("hyprctl")
-                .args(["hyprpaper", "wallpaper", &arg])
-                .status()
-                .is_ok_and(|s| s.success());
-            if ok {
-                true
-            } else {
-                // Not preloaded yet — preload once, then retry.
-                let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
-                Command::new("hyprctl")
+            let attempts = if retry_startup { 10 } else { 1 };
+            let mut ok = false;
+            for attempt in 0..attempts {
+                if attempt > 0 {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                ok = Command::new("hyprctl")
                     .args(["hyprpaper", "wallpaper", &arg])
                     .status()
-                    .is_ok_and(|s| s.success())
+                    .is_ok_and(|s| s.success());
+                if ok {
+                    break;
+                }
+                // Not preloaded yet (or hyprpaper's socket isn't up yet
+                // during the startup race above) — preload and retry.
+                let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
             }
+            if !ok {
+                ok = Command::new("hyprctl")
+                    .args(["hyprpaper", "wallpaper", &arg])
+                    .status()
+                    .is_ok_and(|s| s.success());
+            }
+            ok
         }
         Compositor::Sway => Command::new("swaymsg")
             .args(["output", "*", "bg", path, "fill"])
@@ -424,7 +449,7 @@ fn main() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("--startup") {
         if let Some(path) = read_saved_wallpaper() {
             if Path::new(&path).is_file() {
-                apply_wallpaper(&path);
+                apply_wallpaper_inner(&path, true);
             }
         }
         return Ok(());

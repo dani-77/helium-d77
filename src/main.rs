@@ -45,7 +45,15 @@ fn primary_monitor_width() -> u32 {
                     .iter()
                     .find(|m| m.primary)
                     .or_else(|| monitors.first())
-                    .map(|m| m.width)
+                    // `m.width` is the physical mode width; layer-shell
+                    // surfaces are sized in logical (scale-adjusted)
+                    // coordinates, same as niri_monitor_width()'s
+                    // `logical.width` and sway_monitor_width()'s
+                    // `rect.width` above — without dividing by scale here,
+                    // any Hyprland monitor with scale != 1.0 gets a bar
+                    // request too wide for the screen, which Hyprland
+                    // doesn't clamp (see this function's own doc comment).
+                    .map(|m| (m.width as f64 / m.scale).round() as u32)
             })
         })
         .unwrap_or(FALLBACK_MONITOR_WIDTH)
