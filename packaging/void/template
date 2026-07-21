@@ -1,6 +1,6 @@
 # Template file for 'helium-d77'
 pkgname=helium-d77
-version=0.1.3
+version=0.1.4
 revision=1
 build_style=cargo
 hostmakedepends="pkg-config"
