@@ -1,6 +1,6 @@
 [package]
 name = "helium-shell"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "A personal Wayland status bar built with the Helium shell framework"
 authors = ["Daniel Azevedo", "dani-77 <daniazevedo77@posteo.net>"]
