@@ -25,6 +25,7 @@ do_install() {
 	vbin target/release/helium-osd
 	vbin target/release/helium-wallpaper
 	vbin target/release/helium-backdrop
+	vinstall assets/d77-logo.svg 644 usr/share/helium-d77/
 	vlicense LICENSE
 	vdoc README.md
 }

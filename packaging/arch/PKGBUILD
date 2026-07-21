@@ -34,6 +34,7 @@ package() {
 	install -Dm755 target/release/helium-osd "$pkgdir/usr/bin/helium-osd"
 	install -Dm755 target/release/helium-wallpaper "$pkgdir/usr/bin/helium-wallpaper"
 	install -Dm755 target/release/helium-backdrop "$pkgdir/usr/bin/helium-backdrop"
+	install -Dm644 assets/d77-logo.svg "$pkgdir/usr/share/helium-d77/d77-logo.svg"
 
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
