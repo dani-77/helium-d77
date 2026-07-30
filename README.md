@@ -179,8 +179,8 @@ else whatever's first) and never recomputed afterward — the 15s model-list
 refresh only ever updates the dropdown's contents. An earlier version of
 this logic in quickshell-d77/utumno recomputed that choice on every
 refresh, which would silently revert a manual dropdown pick back to the
-saved/fallback model a few seconds after making it; worth backporting the
-same fix there.
+saved/fallback model a few seconds after making it; fixed there too (see
+quickshell-d77#18 and utumno#4).
 
 ## Backdrop (`helium-backdrop`)
 
