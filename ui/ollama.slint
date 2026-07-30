@@ -1,0 +1,321 @@
+// Chat popup for a locally running Ollama daemon (http://127.0.0.1:11434),
+// mirroring quickshell-d77/utumno's OllamaChat.qml. Driven entirely from
+// src/bin/helium-ollama.rs: it shells out to `curl` for status/model-list
+// polling and for the streaming pull/generate requests, then pushes the
+// results back onto this component's properties.
+//
+// Palette matches ui/bar.slint / ui/osd.slint: #0d0d0d/#141414 backgrounds,
+// #76b900 accent, "Space Grotesk"/"Space Mono" body fonts, "Symbols Nerd
+// Font" icons (only the header status dot / chevrons use plain glyphs
+// here, no icon font needed for those).
+
+export component Ollama inherits Window {
+    width: 560px;
+    height: 620px;
+    background: transparent;
+
+    // --- Driven from Rust ---------------------------------------------
+    in property <bool> ollama_up: false;
+    in property <string> current_model: "";
+    in property <[string]> model_names: [];
+    in property <int> model_count: 0;
+    in property <length> dropdown_height: 0px;
+    in property <string> info_text: "";
+    in property <string> history_text: "";
+
+    // --- Local UI-only state (never touched from Rust) ----------------
+    property <bool> dropdown_open: false;
+    property <bool> install_visible: false;
+
+    // --- Out to Rust ----------------------------------------------------
+    callback model_selected(string);
+    callback install_submitted(string);
+    callback prompt_submitted(string);
+    callback close_requested();
+
+    forward-focus: prompt_input;
+
+    changed model_count => {
+        // The list can shrink/refresh under an open dropdown (a 15s refresh
+        // tick landing while it's open); closing it rather than leaving a
+        // stale row count on screen keeps this simple.
+        dropdown_open = false;
+    }
+
+    Rectangle {
+        background: #0d0d0d;
+        border-radius: 14px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 14px;
+            spacing: 8px;
+
+            // --- Header ---------------------------------------------------
+            HorizontalLayout {
+                height: 30px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    y: (parent.height - self.height) / 2;
+                    background: ollama_up ? #76b900 : #f7768e;
+                }
+
+                Text {
+                    text: "Ollama";
+                    color: #d4d4d4;
+                    font-size: 16px;
+                    font-weight: 700;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Rectangle {
+                    width: 200px;
+                    height: 30px;
+                    border-radius: 6px;
+                    background: #1a1a1a;
+                    border-width: 1px;
+                    border-color: dropdown_open ? #76b900 : #333;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 8px;
+                        spacing: 6px;
+
+                        Text {
+                            text: current_model;
+                            color: #d4d4d4;
+                            font-size: 12px;
+                            font-family: "Space Grotesk";
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: dropdown_open ? "▲" : "▼";
+                            color: #999;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { dropdown_open = !dropdown_open; }
+                    }
+                }
+            }
+
+            // --- Model dropdown --------------------------------------------
+            Rectangle {
+                visible: dropdown_open;
+                height: dropdown_open ? dropdown_height : 0px;
+                border-radius: 8px;
+                background: #1a1a1a;
+                border-width: 1px;
+                border-color: #333;
+                clip: true;
+
+                Flickable {
+                    x: 4px;
+                    y: 4px;
+                    width: parent.width - 8px;
+                    height: parent.height - 8px;
+                    viewport-width: self.width;
+                    viewport-height: (model_count + 1) * 28px;
+
+                    VerticalLayout {
+                        for name in model_names : Rectangle {
+                            height: 28px;
+                            border-radius: 6px;
+                            background: model_ta.has-hover ? #1f3319 : transparent;
+
+                            Text {
+                                x: 8px;
+                                text: name;
+                                color: #d4d4d4;
+                                font-size: 12px;
+                                font-family: "Space Grotesk";
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+
+                            model_ta := TouchArea {
+                                clicked => {
+                                    dropdown_open = false;
+                                    model_selected(name);
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 28px;
+                            border-radius: 6px;
+                            background: install_ta.has-hover ? #16232b : transparent;
+
+                            Text {
+                                x: 8px;
+                                text: "+ instalar novo modelo...";
+                                color: #7dcfff;
+                                font-size: 12px;
+                                font-family: "Space Grotesk";
+                                vertical-alignment: center;
+                            }
+
+                            install_ta := TouchArea {
+                                clicked => {
+                                    dropdown_open = false;
+                                    install_visible = true;
+                                    install_input.focus();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Install new model field ------------------------------------
+            Rectangle {
+                visible: install_visible;
+                height: install_visible ? 36px : 0px;
+                border-radius: 8px;
+                background: #1a1a1a;
+                border-width: 1px;
+                border-color: install_input.has-focus ? #76b900 : #333;
+                clip: true;
+
+                install_input := TextInput {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    color: #d4d4d4;
+                    font-size: 13px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                    single-line: true;
+
+                    key-pressed(event) => {
+                        if (event.text == Key.Return || event.text == "\u{000d}") {
+                            install_visible = false;
+                            if (self.text != "") {
+                                install_submitted(self.text);
+                            }
+                            self.text = "";
+                            prompt_input.focus();
+                            accept
+                        } else if (event.text == Key.Escape) {
+                            install_visible = false;
+                            self.text = "";
+                            prompt_input.focus();
+                            accept
+                        } else {
+                            reject
+                        }
+                    }
+                }
+
+                Text {
+                    x: 10px;
+                    visible: install_input.text == "";
+                    text: "nome-do-modelo:tag (ex: llama3.2:3b)";
+                    color: #666;
+                    font-size: 13px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                }
+            }
+
+            // --- Info / progress banner --------------------------------------
+            Text {
+                visible: info_text != "";
+                text: info_text;
+                color: #7aa2f7;
+                font-size: 12px;
+                font-family: "Space Grotesk";
+                wrap: word-wrap;
+            }
+
+            // --- History ------------------------------------------------------
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 8px;
+                background: #141414;
+                border-width: 1px;
+                border-color: #333;
+                clip: true;
+
+                history_flick := Flickable {
+                    x: 10px;
+                    y: 10px;
+                    width: parent.width - 20px;
+                    height: parent.height - 20px;
+                    viewport-width: self.width;
+                    viewport-height: history_text_item.preferred-height;
+
+                    // Keeps the newest output in view as the model streams.
+                    changed viewport-height => {
+                        history_flick.viewport-y = min(0px, history_flick.height - history_flick.viewport-height);
+                    }
+
+                    history_text_item := Text {
+                        width: parent.width;
+                        text: history_text;
+                        color: #d4d4d4;
+                        font-size: 13px;
+                        font-family: "Space Mono";
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // --- Prompt field ---------------------------------------------------
+            Rectangle {
+                height: 40px;
+                border-radius: 8px;
+                background: #1a1a1a;
+                border-width: 1px;
+                border-color: prompt_input.has-focus ? #76b900 : #333;
+
+                prompt_input := TextInput {
+                    x: 12px;
+                    width: parent.width - 24px;
+                    color: #d4d4d4;
+                    font-size: 13px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                    single-line: true;
+
+                    key-pressed(event) => {
+                        if (event.text == Key.Return || event.text == "\u{000d}") {
+                            if (self.text != "") {
+                                prompt_submitted(self.text);
+                                self.text = "";
+                            }
+                            accept
+                        } else if (event.text == Key.Escape) {
+                            close_requested();
+                            accept
+                        } else {
+                            reject
+                        }
+                    }
+                }
+
+                Text {
+                    x: 12px;
+                    visible: prompt_input.text == "";
+                    text: "Pergunta à IA...";
+                    color: #666;
+                    font-size: 13px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

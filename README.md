@@ -15,11 +15,13 @@ a rounded, floating pill anchored to the top of the screen.
 ## What it shows
 
 ```
-[apps] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
+[apps] [AI] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
 ```
 
 - **Apps icon** (far left) — opens `helium-launcher`, a searchable app list
   (see Launcher below).
+- **AI icon** (next to it) — opens `helium-ollama`, a chat popup for a
+  locally running Ollama daemon (see Ollama chat below).
 - **Workspaces** — one pill per *actual* live workspace (a `[WorkspaceItem]`
   model built from the compositor's own workspace list, not a hardcoded
   count), active one highlighted green, a small dot marks
@@ -50,7 +52,8 @@ Volume and power-profile changes (from anywhere, not just the bar's own
 clicks) also flash a small OSD in the top-right corner — see OSD below.
 
 Every section has a Nerd Font icon (apps/workspaces/weather/clock/network/cpu/
-ram/battery/volume/power) — see Requirements.
+ram/battery/volume/power) — see Requirements. The AI icon is the one
+exception: plain bold text ("AI"), not a Symbols Nerd Font glyph.
 
 ## Launcher (`helium-launcher`)
 
@@ -137,6 +140,47 @@ Because this always reapplies *after* the daemon has already started
 rewrites `hyprpaper.conf` *before* hyprpaper starts), a brief flash of
 hyprpaper's own default background is possible on Hyprland specifically
 before `--startup` catches up.
+
+## Ollama chat (`helium-ollama`)
+
+A chat popup for a locally running [Ollama](https://ollama.com) daemon
+(`http://127.0.0.1:11434`), ported from quickshell-d77/utumno's
+`OllamaChat.qml`. Talks to it via `curl` (no HTTP client crate needed, the
+same choice `weather.rs` makes for wttr.in), streams the model's response
+as it arrives, lets you switch between installed models or pull a new one
+straight from the popup with live download progress, and remembers the
+last picked model at `~/.config/ollama-chat/model.conf` — the same path
+quickshell-d77/utumno use, so the choice carries over between whichever of
+these shells you happen to be running.
+
+The status dot next to "Ollama" reflects whether the `ollama` service is
+running, checked via `sv status ollama` (a runit-supervised install, same
+as quickshell-d77/utumno) — edit `ollama_running()` in
+`src/bin/helium-ollama.rs` if yours is managed differently (e.g.
+`systemctl is-active ollama`).
+
+Opened by clicking the "AI" icon in the bar, or bind it directly to a key:
+
+```
+bind = SUPER, A, exec, /usr/bin/helium-ollama
+```
+
+Unlike every other binary here, pulling a model or waiting on a generated
+response can run for tens of seconds to several minutes — long enough that
+doing it on the event-loop thread (the way the bounded, `--max-time`-capped
+status/model-list polls do) would visibly freeze the window. Both run on
+their own `std::thread` instead, reporting back through
+`EventLoopHandle::add_channel`'s calloop channel — a real cross-thread
+wakeup, not a polled queue.
+
+Model selection is picked once when the popup opens (the saved model if
+it's still installed, else the fallback `qwen2.5:0.5b` if that's installed,
+else whatever's first) and never recomputed afterward — the 15s model-list
+refresh only ever updates the dropdown's contents. An earlier version of
+this logic in quickshell-d77/utumno recomputed that choice on every
+refresh, which would silently revert a manual dropdown pick back to the
+saved/fallback model a few seconds after making it; worth backporting the
+same fix there.
 
 ## Backdrop (`helium-backdrop`)
 
@@ -271,6 +315,10 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   no-op.
 - `curl` and internet access for the weather segment (queries wttr.in — no
   API key needed).
+- For `helium-ollama`: a locally running [Ollama](https://ollama.com) daemon
+  (`http://127.0.0.1:11434`) reachable via `curl`, plus `sv` (runit) if you
+  want the status dot to reflect whether the `ollama` service is up (see
+  Ollama chat above for how to point it at a different init system).
 - A battery under `/sys/class/power_supply/*` for the battery segment (a
   desktop with none just won't get a value there).
 - Rust (edition 2021) and the system deps `layer-shika`/Slint need at build
@@ -310,19 +358,19 @@ sudo make uninstall
 - Needs `make` and everything listed under Requirements above (cargo, the
   `-devel` packages, since `install` always builds first).
 - Installs `helium-shell`, `helium-launcher`, `helium-session`,
-  `helium-osd`, `helium-wallpaper`, and `helium-backdrop` to
-  `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately left out — see
-  Locker above for installing it by hand.
+  `helium-osd`, `helium-wallpaper`, `helium-backdrop`, and `helium-ollama`
+  to `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately left out —
+  see Locker above for installing it by hand.
 - `helium-shell` needs autostarting by your compositor as usual;
   `helium-osd` and `helium-backdrop` additionally need their own autostart
   entries (see their sections above) — the bar doesn't launch either for
-  you. `helium-wallpaper` is spawn-on-demand via a keybind, same as
-  `helium-launcher`/`helium-session`.
+  you. `helium-wallpaper` and `helium-ollama` are spawn-on-demand via the
+  bar/a keybind, same as `helium-launcher`/`helium-session`.
 
 ## Packaging
 
 Draft packaging templates live under `packaging/`: `packaging/void/template`
-(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same six binaries
+(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same seven binaries
 `make install` does (`helium-locker` stays out for the reason in Locker
 above) and need their checksum/`sha256sums` filled in once a version is
 actually tagged upstream.
@@ -349,6 +397,8 @@ config included.
   background, `#76b900` accent). `helium-wallpaper`/`helium-backdrop` reuse
   the same palette in their own generated Slint source (see the constants
   and `build_slint_source()`/`SOURCE` in their respective `src/bin/` files).
+  `helium-ollama` reuses it too, but as a static file (`ui/ollama.slint`)
+  rather than Rust-generated source, like `ui/osd.slint`.
 - **Wallpaper directory**: `helium-wallpaper` scans `$HOME/Wallpaper` by
   default — set `HELIUM_WALLPAPER_DIR` to point it elsewhere instead of
   moving/symlinking your wallpapers to match.
