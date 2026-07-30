@@ -22,7 +22,7 @@ DESTDIR ?=
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SHAREDIR := $(DESTDIR)$(PREFIX)/share/helium-d77
 
-BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop
+BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama
 
 .PHONY: all build install uninstall clean
 
