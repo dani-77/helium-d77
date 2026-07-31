@@ -182,6 +182,19 @@ refresh, which would silently revert a manual dropdown pick back to the
 saved/fallback model a few seconds after making it; fixed there too (see
 quickshell-d77#18 and utumno#4).
 
+The install panel (opened via "+ instalar novo modelo..." in the dropdown)
+shows a hardware-based size hint below the text field: `nvidia-smi` is
+probed once at startup for total VRAM, and the result is phrased as a
+suggested parameter range (e.g. "GPU NVIDIA detectada (~8GB VRAM) —
+modelos até ~7-8B devem correr bem"). Without an NVIDIA GPU, `lspci` is
+used instead just to detect the *presence* of another dedicated card
+(AMD/Intel), since reading its VRAM needs vendor-specific tools that
+aren't always installed — that case gets a generic "~7B is a good
+starting point" hint rather than a size range. No dedicated GPU at all
+falls back to a small-model (≤3B) suggestion for CPU. This is advisory
+only, shown purely as text in the install panel — it never changes which
+model gets picked or auto-installs anything.
+
 ## Backdrop (`helium-backdrop`)
 
 A decorative full-screen background — solid fill plus a couple of green
@@ -319,6 +332,9 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   (`http://127.0.0.1:11434`) reachable via `curl`, plus `sv` (runit) if you
   want the status dot to reflect whether the `ollama` service is up (see
   Ollama chat above for how to point it at a different init system).
+  `nvidia-smi`/`lspci` are optional on top of that — only used for the
+  install panel's hardware-based size hint, and its absence just means a
+  more generic hint (see Ollama chat above).
 - A battery under `/sys/class/power_supply/*` for the battery segment (a
   desktop with none just won't get a value there).
 - Rust (edition 2021) and the system deps `layer-shika`/Slint need at build

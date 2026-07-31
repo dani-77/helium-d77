@@ -22,6 +22,7 @@ export component Ollama inherits Window {
     in property <length> dropdown_height: 0px;
     in property <string> info_text: "";
     in property <string> history_text: "";
+    in property <string> hardware_hint: "";
 
     // --- Local UI-only state (never touched from Rust) ----------------
     property <bool> dropdown_open: false;
@@ -228,6 +229,17 @@ export component Ollama inherits Window {
                     font-family: "Space Grotesk";
                     vertical-alignment: center;
                 }
+            }
+
+            // --- Hardware-based size suggestion, shown while the install
+            // panel above is open --------------------------------------------
+            Text {
+                visible: install_visible && hardware_hint != "";
+                text: hardware_hint;
+                color: #666;
+                font-size: 11px;
+                font-family: "Space Grotesk";
+                wrap: word-wrap;
             }
 
             // --- Info / progress banner --------------------------------------
