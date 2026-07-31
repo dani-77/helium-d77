@@ -86,6 +86,96 @@ fn save_model(name: &str) {
     let _ = fs::write(path, name);
 }
 
+/// Coarse GPU classification used to phrase the model-size hint shown in
+/// the install panel. Computed once at startup — the machine's GPU doesn't
+/// change mid-session, so there's no need to re-probe it on a timer the
+/// way `ollama_running`/`fetch_models` are.
+enum GpuTier {
+    Nvidia { vram_mb: u64 },
+    OtherDedicated,
+    None,
+}
+
+/// Reads total VRAM from `nvidia-smi` (present on any machine with the
+/// NVIDIA driver installed) rather than linking against CUDA/NVML — same
+/// shell-out style already used here for `curl`/`sv`. Multi-GPU systems
+/// report one line per card; the first is treated as the primary one.
+fn nvidia_vram_mb() -> Option<u64> {
+    let output = Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).lines().next()?.trim().parse().ok()
+}
+
+/// There's no portable way to read AMD/Intel VRAM without vendor-specific
+/// tools that aren't always installed (`rocm-smi`, `intel_gpu_top`), so
+/// this only detects the *presence* of a dedicated card via `lspci`,
+/// filtering out the display-controller names integrated chipsets
+/// commonly report themselves as.
+fn other_dedicated_gpu_present() -> bool {
+    let Ok(output) = Command::new("lspci").output() else { return false };
+    if !output.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| l.contains("VGA compatible controller") || l.contains("3D controller"))
+        .any(|l| {
+            let l = l.to_lowercase();
+            let integrated = l.contains("uhd graphics")
+                || l.contains("hd graphics")
+                || l.contains("iris")
+                || (l.contains("radeon") && l.contains("graphics") && !l.contains("rx"));
+            !integrated
+        })
+}
+
+fn detect_gpu_tier() -> GpuTier {
+    if let Some(vram_mb) = nvidia_vram_mb() {
+        return GpuTier::Nvidia { vram_mb };
+    }
+    if other_dedicated_gpu_present() {
+        return GpuTier::OtherDedicated;
+    }
+    GpuTier::None
+}
+
+/// Phrases `tier` as a model-size suggestion for the install panel.
+/// Thresholds follow the common community rule of thumb for 4-bit
+/// quantized models (roughly 0.7-1GB of VRAM per billion parameters, plus
+/// headroom for context/runtime overhead) — a guideline, not a guarantee.
+fn size_hint(tier: &GpuTier) -> String {
+    match tier {
+        GpuTier::Nvidia { vram_mb } => {
+            let gb = *vram_mb as f64 / 1024.0;
+            let range = if gb < 4.0 {
+                "1-2B (ex: qwen2.5:1.5b)"
+            } else if gb < 8.0 {
+                "3B (ex: llama3.2:3b)"
+            } else if gb < 12.0 {
+                "7-8B (ex: llama3.1:8b)"
+            } else if gb < 20.0 {
+                "13-14B (ex: qwen2.5:14b)"
+            } else if gb < 40.0 {
+                "27-32B (ex: qwen2.5:32b)"
+            } else {
+                "70B (ex: llama3.1:70b)"
+            };
+            format!("GPU NVIDIA detectada (~{gb:.0}GB VRAM) — modelos até ~{range} devem correr bem.")
+        }
+        GpuTier::OtherDedicated => "GPU dedicada detectada (não-NVIDIA) — VRAM exata desconhecida; \
+            modelos ~7B costumam ser um bom ponto de partida."
+            .to_string(),
+        GpuTier::None => "Sem GPU dedicada detectada — modelos pequenos (≤3B, ex: qwen2.5:1.5b) \
+            correm melhor em CPU."
+            .to_string(),
+    }
+}
+
 /// Same check quickshell-d77/utumno use: this family of projects targets a
 /// runit-supervised Ollama install (Void Linux). Adjust here if yours is
 /// managed differently (e.g. `systemctl is-active ollama`).
@@ -274,6 +364,7 @@ fn main() -> Result<()> {
     let initial_models = fetch_models().unwrap_or_default();
     let initial_model = pick_model(&initial_models, saved_model.as_deref())
         .unwrap_or_else(|| FALLBACK_MODEL.to_string());
+    let hardware_hint = size_hint(&detect_gpu_tier());
 
     let mut shell = Shell::from_source(include_str!("../../ui/ollama.slint"))
         .surface("Ollama")
@@ -324,6 +415,7 @@ fn main() -> Result<()> {
         comp.set_property("model_names", models_value(&initial_models)).ok();
         comp.set_property("model_count", Value::Number(initial_model_count as f64)).ok();
         comp.set_property("dropdown_height", Value::Number(dropdown_height_px(initial_model_count))).ok();
+        comp.set_property("hardware_hint", Value::String(hardware_hint.as_str().into())).ok();
 
         let weak = comp.as_weak();
         comp.set_callback("model_selected", move |args| {
