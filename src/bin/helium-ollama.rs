@@ -176,16 +176,18 @@ fn size_hint(tier: &GpuTier) -> String {
     }
 }
 
-/// Same check quickshell-d77/utumno use: this family of projects targets a
-/// runit-supervised Ollama install (Void Linux). Adjust here if yours is
-/// managed differently (e.g. `systemctl is-active ollama`).
+/// `sv status ollama` would need root — runit's supervise dirs are `0700
+/// root:root` on this system (true for every service, not just ollama), so
+/// a plain user always gets "access denied" and the status dot would read
+/// down forever. Hitting the API directly, same fix already applied in
+/// quickshell-d77/utumno's OllamaChat.qml, both sidesteps that and is the
+/// more meaningful check anyway: it confirms ollama is actually serving
+/// requests, not just that a process exists.
 fn ollama_running() -> bool {
-    Command::new("sv")
-        .args(["status", "ollama"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim_start().starts_with("run:"))
-        .unwrap_or(false)
+    let output = Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "2", OLLAMA_BASE])
+        .output();
+    matches!(output, Ok(o) if o.status.success() && o.stdout == b"200")
 }
 
 fn fetch_models() -> Option<Vec<String>> {
@@ -287,15 +289,33 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String) {
 
 /// Streams `POST /api/generate` for `prompt` against `model`, sending each
 /// response fragment back through `tx` as it arrives. Runs on its own
-/// thread (see the module doc comment for why): the request is capped at
-/// 30s via `--max-time`, same as quickshell-d77/utumno, but that's still
-/// long enough to visibly freeze the window if done on the event-loop
-/// thread directly.
+/// thread (see the module doc comment for why).
+///
+/// Guarded by `--speed-limit 1 --speed-time 30` rather than a hard
+/// `--max-time`: a flat `--max-time 30` caps the *entire* request, so it
+/// kills a slower model (e.g. qwen2.5:3b, which can take longer than 30s
+/// total between cold model load and a full response on modest hardware)
+/// even while it's actively streaming tokens. `--speed-limit`/`--speed-time`
+/// only aborts if curl goes 30s *without any data at all* — a genuine stall
+/// — and otherwise lets a slow-but-progressing generation run to
+/// completion, same as fabric-d77's `requests` idle-timeout behaves. Still
+/// exits with curl code 28 on trip, so the exit-code handling below is
+/// unchanged.
 fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
     thread::spawn(move || {
         let body = serde_json::json!({ "model": model, "prompt": prompt, "stream": true }).to_string();
         let child = Command::new("curl")
-            .args(["-s", "-N", "--max-time", "30", &format!("{OLLAMA_BASE}/api/generate"), "-d", &body])
+            .args([
+                "-s",
+                "-N",
+                "--speed-limit",
+                "1",
+                "--speed-time",
+                "30",
+                &format!("{OLLAMA_BASE}/api/generate"),
+                "-d",
+                &body,
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn();
