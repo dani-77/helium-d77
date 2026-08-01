@@ -328,6 +328,13 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   directly in `src/main.rs` (`sway_monitor_width()`, `sway_workspaces()`,
   the `SWAYSOCK` branch of `switch_workspace()`) over its native i3-ipc
   socket instead.
+- Under [mangowc](https://github.com/DreamMaoMao/mangowc), only the bar's
+  monitor-width detection is implemented so far (`mango_monitor_width()`,
+  over `mmsg`'s Unix-socket protocol at `$MANGO_INSTANCE_SIGNATURE`) — enough
+  to fix the same centered-with-big-side-gaps bug the niri/Sway fallback
+  used to cause (see `primary_monitor_width()`'s doc comment). Workspace
+  info and click-to-switch aren't wired up for mango yet, so that section
+  of the bar just won't update, same as any other unrecognized compositor.
 - NetworkManager on D-Bus for the network segment, plus `nmtui` (part of
   NetworkManager) and one of `foot`/`kitty`/`alacritty`/`wezterm`/`xterm` for
   the network chip's click-to-open behavior.
