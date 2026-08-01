@@ -153,11 +153,15 @@ last picked model at `~/.config/ollama-chat/model.conf` — the same path
 quickshell-d77/utumno use, so the choice carries over between whichever of
 these shells you happen to be running.
 
-The status dot next to "Ollama" reflects whether the `ollama` service is
-running, checked via `sv status ollama` (a runit-supervised install, same
-as quickshell-d77/utumno) — edit `ollama_running()` in
-`src/bin/helium-ollama.rs` if yours is managed differently (e.g.
-`systemctl is-active ollama`).
+The status dot next to "Ollama" reflects whether Ollama is actually
+serving requests, checked with a bounded `curl` against the API root
+rather than `sv status ollama` — on a runit install the supervise dirs
+are `0700 root:root`, so a plain user always gets "access denied" and
+the dot would read down forever even with Ollama running fine; hitting
+the API directly sidesteps that and is the more meaningful check anyway
+(same fix already landed in quickshell-d77/utumno's `OllamaChat.qml`).
+Edit `ollama_running()` in `src/bin/helium-ollama.rs` if you'd rather
+check a specific init system instead.
 
 Opened by clicking the "AI" icon in the bar, or bind it directly to a key:
 
@@ -172,6 +176,15 @@ status/model-list polls do) would visibly freeze the window. Both run on
 their own `std::thread` instead, reporting back through
 `EventLoopHandle::add_channel`'s calloop channel — a real cross-thread
 wakeup, not a polled queue.
+
+The generate request itself isn't capped with a flat `--max-time`: that
+would cut off a slower model (e.g. `qwen2.5:3b`, which can legitimately
+take longer than 30s total between cold model load and a full response
+on modest hardware) mid-stream just for running long, even while it's
+actively producing tokens. It's guarded with `--speed-limit 1
+--speed-time 30` instead — a stall detector that only aborts on 30s with
+*zero* bytes received, letting a slow-but-progressing generation run to
+completion (same fix landed in quickshell-d77/utumno's `OllamaChat.qml`).
 
 Model selection is picked once when the popup opens (the saved model if
 it's still installed, else the fallback `qwen2.5:0.5b` if that's installed,
