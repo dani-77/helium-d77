@@ -171,6 +171,16 @@ the API directly sidesteps that and is the more meaningful check anyway
 Edit `ollama_running()` in `src/bin/helium-ollama.rs` if you'd rather
 check a specific init system instead.
 
+On first run (no models installed yet), if Ollama's up and
+`https://ollama.com` is reachable, the fallback `qwen2.5:0.5b` is pulled
+automatically instead of leaving the dropdown empty — shown as a distinct
+green-bordered banner ("Primeira execução — a instalar modelo
+automaticamente") rather than happening silently, with a "Parar" button
+that kills the underlying `curl` process mid-download. This isn't
+one-shot/persisted state: it's just "install list is empty," so it'll
+offer again next time the popup opens if you cancel it or if Ollama has no
+models installed for any other reason.
+
 Opened by clicking the "AI" icon in the bar, or bind it directly to a key:
 
 ```

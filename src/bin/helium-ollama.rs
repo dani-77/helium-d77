@@ -33,6 +33,12 @@
 //! ever updates the dropdown's contents, not `current_model` — recomputing
 //! that choice on every refresh would silently revert a manual dropdown
 //! pick back to the saved/fallback model a few seconds after making it.
+//!
+//! First run (nothing installed yet): if Ollama's up and its registry is
+//! reachable, the fallback model is pulled automatically instead of
+//! leaving the dropdown empty — shown as a distinct, dismissible banner
+//! (`auto_pull_active`/`auto_pull_cancel` in `ui/ollama.slint`) rather than
+//! happening silently, and cancellable mid-download via `cancel_pull`.
 
 use layer_shika::calloop::TimeoutAction;
 use layer_shika::calloop::channel::Sender;
@@ -190,6 +196,17 @@ fn ollama_running() -> bool {
     matches!(output, Ok(o) if o.status.success() && o.stdout == b"200")
 }
 
+/// Bounded reachability check against Ollama's own site — cheap way to know
+/// whether the automatic first-run pull (see `main`) has any real chance of
+/// succeeding before kicking it off, same `--max-time`-bounded `curl` style
+/// already used for the status/model-list polls above.
+fn internet_reachable() -> bool {
+    let output = Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "3", "https://ollama.com"])
+        .output();
+    matches!(output, Ok(o) if o.status.success() && o.stdout.starts_with(b"2"))
+}
+
 fn fetch_models() -> Option<Vec<String>> {
     let output = Command::new("curl")
         .args(["-s", "--max-time", "5", &format!("{OLLAMA_BASE}/api/tags")])
@@ -228,14 +245,40 @@ fn dropdown_height_px(model_count: usize) -> f64 {
 
 enum OllamaEvent {
     PullProgress(String),
-    PullFinished { message: String, ok: bool },
+    PullFinished { message: String, ok: bool, auto: bool },
     GenerateToken(String),
+}
+
+/// Handle to a running `curl` pull, shared between `spawn_pull`'s own
+/// thread and `cancel_pull` (called from the "Parar" button on the
+/// first-run automatic pull — see `main`). `cancelled` lets the thread
+/// phrase `PullFinished`'s message as a cancellation rather than a plain
+/// failure once `child.kill()` makes the read loop below end early.
+#[derive(Default)]
+struct PullHandle {
+    child: std::sync::Mutex<Option<std::process::Child>>,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+type SharedPullHandle = std::sync::Arc<PullHandle>;
+
+fn cancel_pull(handle: &SharedPullHandle) {
+    handle.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(child) = handle.child.lock().unwrap().as_mut() {
+        let _ = child.kill();
+    }
 }
 
 /// Streams `POST /api/pull`, reporting each progress line back through
 /// `tx`. Runs on its own thread: a model pull can take anywhere from
 /// seconds to several minutes, far too long to block the event loop for.
-fn spawn_pull(tx: Sender<OllamaEvent>, model: String) {
+/// `auto` just gets echoed back on every event so the UI can tell a
+/// first-run automatic pull apart from a manually requested install.
+/// Returns a fresh handle callers can pass to `cancel_pull` to abort it —
+/// unused (and harmless to drop) for pulls that don't need to be
+/// cancellable.
+fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullHandle {
+    let handle: SharedPullHandle = Default::default();
+    let handle_thread = handle.clone();
     thread::spawn(move || {
         tx.send(OllamaEvent::PullProgress(format!("A instalar '{model}'..."))).ok();
 
@@ -251,13 +294,17 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String) {
                 tx.send(OllamaEvent::PullFinished {
                     message: format!("Falha ao instalar '{model}': curl não encontrado"),
                     ok: false,
+                    auto,
                 })
                 .ok();
                 return;
             }
         };
 
-        if let Some(stdout) = child.stdout.take() {
+        let stdout = child.stdout.take();
+        *handle_thread.child.lock().unwrap() = Some(child);
+
+        if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
                 let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
                 if let Some(err) = chunk.get("error").and_then(|v| v.as_str()) {
@@ -277,14 +324,24 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String) {
             }
         }
 
-        let ok = child.wait().is_ok_and(|s| s.success());
-        let message = if ok {
+        // Take the child back out to reap it — cancel_pull only kills it,
+        // it never takes it, so this is always the one that owns cleanup.
+        let ok = handle_thread
+            .child
+            .lock()
+            .unwrap()
+            .take()
+            .is_some_and(|mut c| c.wait().is_ok_and(|s| s.success()));
+        let message = if handle_thread.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+            format!("Instalação de '{model}' cancelada.")
+        } else if ok {
             format!("'{model}' instalado com sucesso.")
         } else {
             format!("Falha ao instalar '{model}'.")
         };
-        tx.send(OllamaEvent::PullFinished { message, ok }).ok();
+        tx.send(OllamaEvent::PullFinished { message, ok, auto }).ok();
     });
+    handle
 }
 
 /// Streams `POST /api/generate` for `prompt` against `model`, sending each
@@ -386,6 +443,14 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| FALLBACK_MODEL.to_string());
     let hardware_hint = size_hint(&detect_gpu_tier());
 
+    // First run: nothing installed yet. Rather than leaving the dropdown
+    // empty and making the user hunt for a model name to type, grab the
+    // fallback automatically — but only when it's actually likely to work
+    // (service up, registry reachable), and flagged prominently in the UI
+    // (`auto_pull_active`) with a "Parar" button, not silently in the
+    // background.
+    let auto_pull = initial_up && initial_models.is_empty() && internet_reachable();
+
     let mut shell = Shell::from_source(include_str!("../../ui/ollama.slint"))
         .surface("Ollama")
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -403,8 +468,11 @@ fn main() -> Result<()> {
                 OllamaEvent::PullProgress(text) => {
                     instance.set_property("info_text", Value::String(text.as_str().into())).ok();
                 }
-                OllamaEvent::PullFinished { message, ok } => {
+                OllamaEvent::PullFinished { message, ok, auto } => {
                     instance.set_property("info_text", Value::String(message.as_str().into())).ok();
+                    if *auto {
+                        instance.set_property("auto_pull_active", Value::Bool(false)).ok();
+                    }
                     // A newly-installed model should show up in the
                     // dropdown without waiting for the next 15s tick.
                     if *ok {
@@ -428,6 +496,10 @@ fn main() -> Result<()> {
         }
     })?;
 
+    // Kicked off before the surface callbacks below so `auto_pull_handle`
+    // can be moved into the "Parar" button's callback closure.
+    let auto_pull_handle = auto_pull.then(|| spawn_pull(tx.clone(), FALLBACK_MODEL.to_string(), true));
+
     let initial_model_count = initial_models.len();
     shell.with_surface("Ollama", |comp| {
         comp.set_property("ollama_up", Value::Bool(initial_up)).ok();
@@ -436,6 +508,7 @@ fn main() -> Result<()> {
         comp.set_property("model_count", Value::Number(initial_model_count as f64)).ok();
         comp.set_property("dropdown_height", Value::Number(dropdown_height_px(initial_model_count))).ok();
         comp.set_property("hardware_hint", Value::String(hardware_hint.as_str().into())).ok();
+        comp.set_property("auto_pull_active", Value::Bool(auto_pull)).ok();
 
         let weak = comp.as_weak();
         comp.set_callback("model_selected", move |args| {
@@ -454,7 +527,14 @@ fn main() -> Result<()> {
             let Some(Value::String(name)) = args.first() else { return Value::Void };
             let name = name.trim().to_string();
             if !name.is_empty() {
-                spawn_pull(tx_install.clone(), name);
+                spawn_pull(tx_install.clone(), name, false);
+            }
+            Value::Void
+        }).ok();
+
+        comp.set_callback("auto_pull_cancel", move |_| {
+            if let Some(handle) = &auto_pull_handle {
+                cancel_pull(handle);
             }
             Value::Void
         }).ok();
