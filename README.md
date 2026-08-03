@@ -153,6 +153,14 @@ last picked model at `~/.config/ollama-chat/model.conf` — the same path
 quickshell-d77/utumno use, so the choice carries over between whichever of
 these shells you happen to be running.
 
+The history pane is a read-only `TextInput` rather than a plain `Text`, so
+the model's output (code, scripts, whatever it wrote) can be selected with
+the mouse and copied out with Ctrl+C like any normal text field, instead of
+being stuck on-screen. Since `TextInput` has no content-based height of its
+own the way `Text` does, an invisible `Text` twin with the same font/wrap
+computes the wrapped content height that sizes the scroll viewport — see
+`history_measure`/`history_text_item` in `ui/ollama.slint`.
+
 The status dot next to "Ollama" reflects whether Ollama is actually
 serving requests, checked with a bounded `curl` against the API root
 rather than `sv status ollama` — on a runit install the supervise dirs
