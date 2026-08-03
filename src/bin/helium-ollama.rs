@@ -47,7 +47,7 @@ use layer_shika::slint::{ModelRc, VecModel};
 use layer_shika::slint_interpreter::{ComponentHandle, Value};
 use serde_json::Value as Json;
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -435,6 +435,21 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
     });
 }
 
+/// `layer_shika`'s Slint platform only implements `create_window_adapter`
+/// (see `CustomSlintPlatform` in `layer-shika-adapters`), so `TextInput`'s
+/// built-in Ctrl+C falls through to `Platform::set_clipboard_text`'s default
+/// no-op impl — selecting the AI's output in `history_text_item` works, but
+/// nothing actually reaches the Wayland clipboard. Shelling out to `wl-copy`
+/// (same style as `curl`/`nvidia-smi` elsewhere here) sidesteps that gap
+/// instead of waiting on upstream clipboard support.
+fn copy_to_clipboard(text: &str) {
+    let Ok(mut child) = Command::new("wl-copy").stdin(Stdio::piped()).spawn() else { return };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(text.as_bytes());
+    }
+    let _ = child.wait();
+}
+
 fn main() -> Result<()> {
     let saved_model = read_saved_model();
     let initial_up = ollama_running();
@@ -562,6 +577,19 @@ fn main() -> Result<()> {
 
         comp.set_callback("close_requested", move |_| {
             std::process::exit(0);
+        }).ok();
+
+        comp.set_callback("copy_requested", move |args| {
+            let (Some(Value::String(text)), Some(Value::Number(anchor)), Some(Value::Number(cursor))) =
+                (args.first(), args.get(1), args.get(2))
+            else {
+                return Value::Void;
+            };
+            let (start, end) = ((*anchor as usize).min(*cursor as usize), (*anchor as usize).max(*cursor as usize));
+            if let Some(selected) = text.get(start..end) {
+                copy_to_clipboard(selected);
+            }
+            Value::Void
         }).ok();
     })?;
 

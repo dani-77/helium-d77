@@ -35,6 +35,10 @@ export component Ollama inherits Window {
     callback prompt_submitted(string);
     callback auto_pull_cancel();
     callback close_requested();
+    // (text, selection-anchor-byte-offset, cursor-byte-offset) — see the
+    // key-pressed handler on `history_text_item` below for why Ctrl+C needs
+    // its own round-trip to Rust instead of `TextInput`'s built-in copy.
+    callback copy_requested(string, int, int);
 
     forward-focus: prompt_input;
 
@@ -370,6 +374,16 @@ export component Ollama inherits Window {
                         key-pressed(event) => {
                             if (event.text == Key.Escape) {
                                 close_requested();
+                                accept
+                            // Ctrl held + "c" arrives here as the raw ETX control character
+                            // (`\u{3}`), not the letter "c" -- checking for the letter too
+                            // costs nothing and keeps this working if that ever differs.
+                            } else if (event.modifiers.control && (event.text == "c" || event.text == "C" || event.text == "\u{3}")) {
+                                copy_requested(
+                                    self.text,
+                                    self.anchor-position-byte-offset,
+                                    self.cursor-position_byte-offset,
+                                );
                                 accept
                             } else {
                                 reject
