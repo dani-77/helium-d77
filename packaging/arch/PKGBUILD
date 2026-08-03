@@ -9,7 +9,7 @@ license=('MIT')
 depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
 makedepends=('cargo' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('97b903493a5739e4f30b4a7c1c86cb7c48f0ade0758e420668f64173973c2204')
+sha256sums=('6bcc656c2b875e87b44da1b36798e86e1116aab0e7ed1dfc8ed4ea7d102c35ea')
 
 prepare() {
 	cd "helium-d77-$pkgver"
