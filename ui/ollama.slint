@@ -267,20 +267,51 @@ export component Ollama inherits Window {
                     width: parent.width - 20px;
                     height: parent.height - 20px;
                     viewport-width: self.width;
-                    viewport-height: history_text_item.preferred-height;
+                    viewport-height: max(self.height, history_measure.preferred-height);
 
                     // Keeps the newest output in view as the model streams.
                     changed viewport-height => {
                         history_flick.viewport-y = min(0px, history_flick.height - history_flick.viewport-height);
                     }
 
-                    history_text_item := Text {
+                    // Invisible twin of `history_text_item` below, kept only because
+                    // `TextInput` (unlike `Text`) has no content-based `preferred-height`
+                    // of its own to size the viewport from — it defaults to filling
+                    // whatever height it's given instead of wrapping to fit its text.
+                    history_measure := Text {
+                        visible: false;
                         width: parent.width;
                         text: history_text;
-                        color: #d4d4d4;
                         font-size: 13px;
                         font-family: "Space Mono";
                         wrap: word-wrap;
+                    }
+
+                    // `TextInput` instead of `Text` so the AI's output can actually be
+                    // selected (mouse drag) and copied (Ctrl+C) out of the window —
+                    // `read-only: true` keeps it from being edited or grabbing normal
+                    // typing away from `prompt_input`.
+                    history_text_item := TextInput {
+                        width: parent.width;
+                        height: history_measure.preferred-height;
+                        text: history_text;
+                        read-only: true;
+                        single-line: false;
+                        color: #d4d4d4;
+                        selection-background-color: #76b90066;
+                        selection-foreground-color: #ffffff;
+                        font-size: 13px;
+                        font-family: "Space Mono";
+                        wrap: word-wrap;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Escape) {
+                                close_requested();
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
                     }
                 }
             }
