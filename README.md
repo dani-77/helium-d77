@@ -174,8 +174,8 @@ check a specific init system instead.
 On first run (no models installed yet), if Ollama's up and
 `https://ollama.com` is reachable, the fallback `qwen2.5:0.5b` is pulled
 automatically instead of leaving the dropdown empty — shown as a distinct
-green-bordered banner ("Primeira execução — a instalar modelo
-automaticamente") rather than happening silently, with a "Parar" button
+green-bordered banner ("First run — installing model
+automatically") rather than happening silently, with a "Stop" button
 that kills the underlying `curl` process mid-download. This isn't
 one-shot/persisted state: it's just "install list is empty," so it'll
 offer again next time the popup opens if you cancel it or if Ollama has no
@@ -213,11 +213,11 @@ refresh, which would silently revert a manual dropdown pick back to the
 saved/fallback model a few seconds after making it; fixed there too (see
 quickshell-d77#18 and utumno#4).
 
-The install panel (opened via "+ instalar novo modelo..." in the dropdown)
+The install panel (opened via "+ install new model..." in the dropdown)
 shows a hardware-based size hint below the text field: `nvidia-smi` is
 probed once at startup for total VRAM, and the result is phrased as a
-suggested parameter range (e.g. "GPU NVIDIA detectada (~8GB VRAM) —
-modelos até ~7-8B devem correr bem"). Without an NVIDIA GPU, `lspci` is
+suggested parameter range (e.g. "NVIDIA GPU detected (~8GB VRAM) —
+models up to ~7-8B should run well"). Without an NVIDIA GPU, `lspci` is
 used instead just to detect the *presence* of another dedicated card
 (AMD/Intel), since reading its VRAM needs vendor-specific tools that
 aren't always installed — that case gets a generic "~7B is a good

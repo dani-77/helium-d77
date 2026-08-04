@@ -61,7 +61,7 @@ const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const MODELS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const ROW_HEIGHT: u32 = 28;
 /// Dropdown rows shown before it scrolls instead of growing further: the
-/// model list plus the always-present "+ instalar novo modelo..." row.
+/// model list plus the always-present "+ install new model..." row.
 const MAX_VISIBLE_ROWS: u32 = 6;
 
 fn home_dir() -> PathBuf {
@@ -171,13 +171,13 @@ fn size_hint(tier: &GpuTier) -> String {
             } else {
                 "70B (ex: llama3.1:70b)"
             };
-            format!("GPU NVIDIA detectada (~{gb:.0}GB VRAM) — modelos até ~{range} devem correr bem.")
+            format!("NVIDIA GPU detected (~{gb:.0}GB VRAM) — models up to ~{range} should run well.")
         }
-        GpuTier::OtherDedicated => "GPU dedicada detectada (não-NVIDIA) — VRAM exata desconhecida; \
-            modelos ~7B costumam ser um bom ponto de partida."
+        GpuTier::OtherDedicated => "Dedicated GPU detected (non-NVIDIA) — exact VRAM unknown; \
+            ~7B models are usually a good starting point."
             .to_string(),
-        GpuTier::None => "Sem GPU dedicada detectada — modelos pequenos (≤3B, ex: qwen2.5:1.5b) \
-            correm melhor em CPU."
+        GpuTier::None => "No dedicated GPU detected — small models (≤3B, e.g. qwen2.5:1.5b) \
+            run better on CPU."
             .to_string(),
     }
 }
@@ -250,7 +250,7 @@ enum OllamaEvent {
 }
 
 /// Handle to a running `curl` pull, shared between `spawn_pull`'s own
-/// thread and `cancel_pull` (called from the "Parar" button on the
+/// thread and `cancel_pull` (called from the "Stop" button on the
 /// first-run automatic pull — see `main`). `cancelled` lets the thread
 /// phrase `PullFinished`'s message as a cancellation rather than a plain
 /// failure once `child.kill()` makes the read loop below end early.
@@ -280,7 +280,7 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
     let handle: SharedPullHandle = Default::default();
     let handle_thread = handle.clone();
     thread::spawn(move || {
-        tx.send(OllamaEvent::PullProgress(format!("A instalar '{model}'..."))).ok();
+        tx.send(OllamaEvent::PullProgress(format!("Installing '{model}'..."))).ok();
 
         let body = serde_json::json!({ "name": model, "stream": true }).to_string();
         let child = Command::new("curl")
@@ -292,7 +292,7 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
             Ok(c) => c,
             Err(_) => {
                 tx.send(OllamaEvent::PullFinished {
-                    message: format!("Falha ao instalar '{model}': curl não encontrado"),
+                    message: format!("Failed to install '{model}': curl not found"),
                     ok: false,
                     auto,
                 })
@@ -308,7 +308,7 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
                 let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
                 if let Some(err) = chunk.get("error").and_then(|v| v.as_str()) {
-                    tx.send(OllamaEvent::PullProgress(format!("Erro a instalar '{model}': {err}"))).ok();
+                    tx.send(OllamaEvent::PullProgress(format!("Error installing '{model}': {err}"))).ok();
                     continue;
                 }
                 let status = chunk.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -316,9 +316,9 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
                 let completed = chunk.get("completed").and_then(Json::as_u64);
                 let text = match (total, completed) {
                     (Some(t), Some(c)) if t > 0 => {
-                        format!("A instalar '{model}': {status} ({}%)", c * 100 / t)
+                        format!("Installing '{model}': {status} ({}%)", c * 100 / t)
                     }
-                    _ => format!("A instalar '{model}': {status}"),
+                    _ => format!("Installing '{model}': {status}"),
                 };
                 tx.send(OllamaEvent::PullProgress(text)).ok();
             }
@@ -333,11 +333,11 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
             .take()
             .is_some_and(|mut c| c.wait().is_ok_and(|s| s.success()));
         let message = if handle_thread.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
-            format!("Instalação de '{model}' cancelada.")
+            format!("Installation of '{model}' cancelled.")
         } else if ok {
-            format!("'{model}' instalado com sucesso.")
+            format!("'{model}' installed successfully.")
         } else {
-            format!("Falha ao instalar '{model}'.")
+            format!("Failed to install '{model}'.")
         };
         tx.send(OllamaEvent::PullFinished { message, ok, auto }).ok();
     });
@@ -381,7 +381,7 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
             Ok(c) => c,
             Err(_) => {
                 tx.send(OllamaEvent::GenerateToken(
-                    "\n[sem resposta do Ollama — curl não encontrado]\n".to_string(),
+                    "\n[no response from Ollama — curl not found]\n".to_string(),
                 ))
                 .ok();
                 return;
@@ -404,7 +404,7 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
                 let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
                 got_any = true;
                 if let Some(err) = chunk.get("error").and_then(|v| v.as_str()) {
-                    tx.send(OllamaEvent::GenerateToken(format!("\n[erro do modelo: {err}]\n"))).ok();
+                    tx.send(OllamaEvent::GenerateToken(format!("\n[model error: {err}]\n"))).ok();
                 } else if let Some(resp) = chunk.get("response").and_then(|v| v.as_str()) {
                     if !resp.is_empty() {
                         tx.send(OllamaEvent::GenerateToken(resp.to_string())).ok();
@@ -420,11 +420,11 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
         // Mirrors quickshell-d77/utumno's three failure messages exactly.
         if code != 0 || !got_any {
             let msg = if err_buf.contains("Connection refused") || code == 7 {
-                Some("\n[Ollama não está a correr. Verifica com: sv status ollama]\n".to_string())
+                Some("\n[Ollama is not running. Check with: sv status ollama]\n".to_string())
             } else if code == 28 {
-                Some("\n[Ollama demorou demasiado a responder — timeout]\n".to_string())
+                Some("\n[Ollama took too long to respond — timeout]\n".to_string())
             } else if !got_any {
-                Some(format!("\n[sem resposta do Ollama — código curl: {code}]\n"))
+                Some(format!("\n[no response from Ollama — curl code: {code}]\n"))
             } else {
                 None
             };
@@ -462,7 +462,7 @@ fn main() -> Result<()> {
     // empty and making the user hunt for a model name to type, grab the
     // fallback automatically — but only when it's actually likely to work
     // (service up, registry reachable), and flagged prominently in the UI
-    // (`auto_pull_active`) with a "Parar" button, not silently in the
+    // (`auto_pull_active`) with a "Stop" button, not silently in the
     // background.
     let auto_pull = initial_up && initial_models.is_empty() && internet_reachable();
 
@@ -512,7 +512,7 @@ fn main() -> Result<()> {
     })?;
 
     // Kicked off before the surface callbacks below so `auto_pull_handle`
-    // can be moved into the "Parar" button's callback closure.
+    // can be moved into the "Stop" button's callback closure.
     let auto_pull_handle = auto_pull.then(|| spawn_pull(tx.clone(), FALLBACK_MODEL.to_string(), true));
 
     let initial_model_count = initial_models.len();

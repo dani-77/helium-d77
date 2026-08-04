@@ -168,7 +168,7 @@ export component Ollama inherits Window {
 
                             Text {
                                 x: 8px;
-                                text: "+ instalar novo modelo...";
+                                text: "+ install new model...";
                                 color: #7dcfff;
                                 font-size: 12px;
                                 font-family: "Space Grotesk";
@@ -229,7 +229,7 @@ export component Ollama inherits Window {
                 Text {
                     x: 10px;
                     visible: install_input.text == "";
-                    text: "nome-do-modelo:tag (ex: llama3.2:3b)";
+                    text: "model-name:tag (e.g. llama3.2:3b)";
                     color: #666;
                     font-size: 13px;
                     font-family: "Space Grotesk";
@@ -267,7 +267,7 @@ export component Ollama inherits Window {
                         spacing: 2px;
 
                         Text {
-                            text: "⬇ Primeira execução — a instalar modelo automaticamente";
+                            text: "⬇ First run — installing model automatically";
                             color: #9ece6a;
                             font-size: 11px;
                             font-weight: 700;
@@ -294,7 +294,7 @@ export component Ollama inherits Window {
                         border-color: #f7768e;
 
                         Text {
-                            text: "Parar";
+                            text: "Stop";
                             color: #f7768e;
                             font-size: 11px;
                             font-family: "Space Grotesk";
@@ -429,7 +429,7 @@ export component Ollama inherits Window {
                 Text {
                     x: 12px;
                     visible: prompt_input.text == "";
-                    text: "Pergunta à IA...";
+                    text: "Ask the AI...";
                     color: #666;
                     font-size: 13px;
                     font-family: "Space Grotesk";
