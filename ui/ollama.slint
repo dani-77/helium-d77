@@ -24,6 +24,7 @@ export component Ollama inherits Window {
     in property <string> history_text: "";
     in property <string> hardware_hint: "";
     in property <bool> auto_pull_active: false;
+    in property <bool> generating: false;
 
     // --- Local UI-only state (never touched from Rust) ----------------
     property <bool> dropdown_open: false;
@@ -34,6 +35,7 @@ export component Ollama inherits Window {
     callback install_submitted(string);
     callback prompt_submitted(string);
     callback auto_pull_cancel();
+    callback generate_cancel();
     callback close_requested();
     // (text, selection-anchor-byte-offset, cursor-byte-offset) — see the
     // key-pressed handler on `history_text_item` below for why Ctrl+C needs
@@ -393,47 +395,78 @@ export component Ollama inherits Window {
                 }
             }
 
-            // --- Prompt field ---------------------------------------------------
-            Rectangle {
-                height: 40px;
-                border-radius: 8px;
-                background: #1a1a1a;
-                border-width: 1px;
-                border-color: prompt_input.has-focus ? #76b900 : #333;
+            // --- Prompt field + Stop button --------------------------------------
+            HorizontalLayout {
+                spacing: 8px;
 
-                prompt_input := TextInput {
-                    x: 12px;
-                    width: parent.width - 24px;
-                    color: #d4d4d4;
-                    font-size: 13px;
-                    font-family: "Space Grotesk";
-                    vertical-alignment: center;
-                    single-line: true;
+                Rectangle {
+                    height: 40px;
+                    border-radius: 8px;
+                    background: #1a1a1a;
+                    border-width: 1px;
+                    border-color: prompt_input.has-focus ? #76b900 : #333;
 
-                    key-pressed(event) => {
-                        if (event.text == Key.Return || event.text == "\u{000d}") {
-                            if (self.text != "") {
-                                prompt_submitted(self.text);
-                                self.text = "";
+                    prompt_input := TextInput {
+                        x: 12px;
+                        width: parent.width - 24px;
+                        color: #d4d4d4;
+                        font-size: 13px;
+                        font-family: "Space Grotesk";
+                        vertical-alignment: center;
+                        single-line: true;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Return || event.text == "\u{000d}") {
+                                if (self.text != "" && !generating) {
+                                    prompt_submitted(self.text);
+                                    self.text = "";
+                                }
+                                accept
+                            } else if (event.text == Key.Escape) {
+                                if (generating) {
+                                    generate_cancel();
+                                } else {
+                                    close_requested();
+                                }
+                                accept
+                            } else {
+                                reject
                             }
-                            accept
-                        } else if (event.text == Key.Escape) {
-                            close_requested();
-                            accept
-                        } else {
-                            reject
                         }
+                    }
+
+                    Text {
+                        x: 12px;
+                        visible: prompt_input.text == "";
+                        text: generating ? "Generating... (Esc to stop)" : "Ask the AI...";
+                        color: #666;
+                        font-size: 13px;
+                        font-family: "Space Grotesk";
+                        vertical-alignment: center;
                     }
                 }
 
-                Text {
-                    x: 12px;
-                    visible: prompt_input.text == "";
-                    text: "Ask the AI...";
-                    color: #666;
-                    font-size: 13px;
-                    font-family: "Space Grotesk";
-                    vertical-alignment: center;
+                Rectangle {
+                    visible: generating;
+                    width: generating ? 64px : 0px;
+                    height: 40px;
+                    border-radius: 8px;
+                    background: gen_stop_ta.has-hover ? #3a1414 : #241414;
+                    border-width: 1px;
+                    border-color: #f7768e;
+
+                    Text {
+                        text: "Stop";
+                        color: #f7768e;
+                        font-size: 13px;
+                        font-family: "Space Grotesk";
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    gen_stop_ta := TouchArea {
+                        clicked => { generate_cancel(); }
+                    }
                 }
             }
         }

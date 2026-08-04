@@ -247,6 +247,7 @@ enum OllamaEvent {
     PullProgress(String),
     PullFinished { message: String, ok: bool, auto: bool },
     GenerateToken(String),
+    GenerateFinished,
 }
 
 /// Handle to a running `curl` pull, shared between `spawn_pull`'s own
@@ -262,6 +263,22 @@ struct PullHandle {
 type SharedPullHandle = std::sync::Arc<PullHandle>;
 
 fn cancel_pull(handle: &SharedPullHandle) {
+    handle.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    if let Some(child) = handle.child.lock().unwrap().as_mut() {
+        let _ = child.kill();
+    }
+}
+
+/// Same shape as `PullHandle`/`cancel_pull`, for the "Stop" button on a
+/// response that's actively streaming (see `spawn_generate`).
+#[derive(Default)]
+struct GenerateHandle {
+    child: std::sync::Mutex<Option<std::process::Child>>,
+    cancelled: std::sync::atomic::AtomicBool,
+}
+type SharedGenerateHandle = std::sync::Arc<GenerateHandle>;
+
+fn cancel_generate(handle: &SharedGenerateHandle) {
     handle.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
     if let Some(child) = handle.child.lock().unwrap().as_mut() {
         let _ = child.kill();
@@ -358,9 +375,17 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
 /// completion, same as fabric-d77's `requests` idle-timeout behaves. Still
 /// exits with curl code 28 on trip, so the exit-code handling below is
 /// unchanged.
-fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
+fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> SharedGenerateHandle {
+    let handle: SharedGenerateHandle = Default::default();
+    let handle_thread = handle.clone();
     thread::spawn(move || {
-        let body = serde_json::json!({ "model": model, "prompt": prompt, "stream": true }).to_string();
+        // keep_alive: 0 unloads the model right after this reply instead of
+        // idling on Ollama's server-side 5min default — see
+        // quickshell-d77/utumno's OllamaChat.qml, same fix, same reason.
+        let body = serde_json::json!({
+            "model": model, "prompt": prompt, "stream": true, "keep_alive": 0
+        })
+        .to_string();
         let child = Command::new("curl")
             .args([
                 "-s",
@@ -384,6 +409,7 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
                     "\n[no response from Ollama — curl not found]\n".to_string(),
                 ))
                 .ok();
+                tx.send(OllamaEvent::GenerateFinished).ok();
                 return;
             }
         };
@@ -398,8 +424,11 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
             })
         });
 
+        let stdout = child.stdout.take();
+        *handle_thread.child.lock().unwrap() = Some(child);
+
         let mut got_any = false;
-        if let Some(stdout) = child.stdout.take() {
+        if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
                 let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
                 got_any = true;
@@ -413,10 +442,16 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
             }
         }
 
-        let status = child.wait();
+        // Take the child back out to reap it — cancel_generate only kills
+        // it, it never takes it, so this is always the one that owns cleanup.
+        let status = handle_thread.child.lock().unwrap().take().map(|mut c| c.wait());
+        let cancelled = handle_thread.cancelled.load(std::sync::atomic::Ordering::SeqCst);
         let err_buf = stderr_handle.and_then(|h| h.join().ok()).unwrap_or_default();
-        let code = status.ok().and_then(|s| s.code()).unwrap_or(-1);
+        let code = status.and_then(|s| s.ok()).and_then(|s| s.code()).unwrap_or(-1);
 
+        if cancelled {
+            tx.send(OllamaEvent::GenerateToken("\n[stopped]\n".to_string())).ok();
+        } else
         // Mirrors quickshell-d77/utumno's three failure messages exactly.
         if code != 0 || !got_any {
             let msg = if err_buf.contains("Connection refused") || code == 7 {
@@ -432,7 +467,9 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) {
                 tx.send(OllamaEvent::GenerateToken(msg)).ok();
             }
         }
+        tx.send(OllamaEvent::GenerateFinished).ok();
     });
+    handle
 }
 
 /// `layer_shika`'s Slint platform only implements `create_window_adapter`
@@ -507,6 +544,9 @@ fn main() -> Result<()> {
                     };
                     instance.set_property("history_text", Value::String((history + text).into())).ok();
                 }
+                OllamaEvent::GenerateFinished => {
+                    instance.set_property("generating", Value::Bool(false)).ok();
+                }
             }
         }
     })?;
@@ -514,6 +554,14 @@ fn main() -> Result<()> {
     // Kicked off before the surface callbacks below so `auto_pull_handle`
     // can be moved into the "Stop" button's callback closure.
     let auto_pull_handle = auto_pull.then(|| spawn_pull(tx.clone(), FALLBACK_MODEL.to_string(), true));
+
+    // Holds whichever generate request is currently streaming, so
+    // `generate_cancel` (the response "Stop" button) can reach it — unlike
+    // `auto_pull_handle` this is replaced on every `prompt_submitted`
+    // rather than set once, so it's a shared mutable slot instead of a
+    // single moved value.
+    let current_generate: std::sync::Arc<std::sync::Mutex<Option<SharedGenerateHandle>>> =
+        Default::default();
 
     let initial_model_count = initial_models.len();
     shell.with_surface("Ollama", |comp| {
@@ -556,6 +604,7 @@ fn main() -> Result<()> {
 
         let weak = comp.as_weak();
         let tx_prompt = tx.clone();
+        let current_generate_submit = current_generate.clone();
         comp.set_callback("prompt_submitted", move |args| {
             let Some(Value::String(prompt)) = args.first() else { return Value::Void };
             let prompt = prompt.to_string();
@@ -571,7 +620,17 @@ fn main() -> Result<()> {
             instance
                 .set_property("history_text", Value::String(format!("{history}\n> {prompt}\n").into()))
                 .ok();
-            spawn_generate(tx_prompt.clone(), model, prompt);
+            instance.set_property("generating", Value::Bool(true)).ok();
+            let handle = spawn_generate(tx_prompt.clone(), model, prompt);
+            *current_generate_submit.lock().unwrap() = Some(handle);
+            Value::Void
+        }).ok();
+
+        let current_generate_cancel = current_generate.clone();
+        comp.set_callback("generate_cancel", move |_| {
+            if let Some(handle) = current_generate_cancel.lock().unwrap().as_ref() {
+                cancel_generate(handle);
+            }
             Value::Void
         }).ok();
 
