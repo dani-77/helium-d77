@@ -30,11 +30,9 @@ pub fn cpu_usage_percent(prev: &mut Option<(u64, u64)>) -> Option<u8> {
         Some((prev_total, prev_idle)) => {
             let total_delta = total.saturating_sub(prev_total);
             let idle_delta = idle.saturating_sub(prev_idle);
-            if total_delta == 0 {
-                None
-            } else {
-                Some((100 * (total_delta.saturating_sub(idle_delta)) / total_delta) as u8)
-            }
+            (100 * total_delta.saturating_sub(idle_delta))
+                .checked_div(total_delta)
+                .map(|v| v as u8)
         }
         None => None,
     };
@@ -49,9 +47,9 @@ pub fn ram_usage_percent() -> Option<u8> {
     let mut available = None;
     for line in meminfo.lines() {
         if let Some(v) = line.strip_prefix("MemTotal:") {
-            total = v.trim().split_whitespace().next()?.parse::<u64>().ok();
+            total = v.split_whitespace().next()?.parse::<u64>().ok();
         } else if let Some(v) = line.strip_prefix("MemAvailable:") {
-            available = v.trim().split_whitespace().next()?.parse::<u64>().ok();
+            available = v.split_whitespace().next()?.parse::<u64>().ok();
         }
     }
     let (total, available) = (total?, available?);
@@ -98,17 +96,14 @@ pub struct VolumeInfo {
 /// Reads Master volume via `amixer` (ALSA). Parses lines like
 /// `Front Left: Playback 32768 [50%] [on]`.
 pub fn volume() -> Option<VolumeInfo> {
-    let output = Command::new("amixer").args(["sget", "Master"]).output().ok()?;
+    let output = Command::new("amixer")
+        .args(["sget", "Master"])
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let line = text.lines().find(|l| l.contains('%'))?;
 
-    let percent: u8 = line
-        .split('[')
-        .nth(1)?
-        .split('%')
-        .next()?
-        .parse()
-        .ok()?;
+    let percent: u8 = line.split('[').nth(1)?.split('%').next()?.parse().ok()?;
     let muted = line.contains("[off]");
     Some(VolumeInfo { percent, muted })
 }

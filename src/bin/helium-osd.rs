@@ -42,7 +42,10 @@ const VISIBLE_FOR: Duration = Duration::from_millis(2500);
 /// don't share modules with src/main.rs in this project, see helium-session
 /// and helium-locker for the same pattern).
 fn read_volume() -> Option<(u8, bool)> {
-    let output = std::process::Command::new("amixer").args(["sget", "Master"]).output().ok()?;
+    let output = std::process::Command::new("amixer")
+        .args(["sget", "Master"])
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let line = text.lines().find(|l| l.contains('%'))?;
     let percent: u8 = line.split('[').nth(1)?.split('%').next()?.parse().ok()?;
@@ -54,14 +57,20 @@ fn read_volume() -> Option<(u8, bool)> {
 /// machine-readable parsing (field 4 of the comma-separated output) as
 /// fabric-d77/quickshell-d77's OSDs.
 fn read_brightness() -> Option<u8> {
-    let output = std::process::Command::new("brightnessctl").arg("-m").output().ok()?;
+    let output = std::process::Command::new("brightnessctl")
+        .arg("-m")
+        .output()
+        .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let field = text.trim().split(',').nth(3)?;
     field.trim_end_matches('%').parse().ok()
 }
 
 fn read_power_profile() -> Option<String> {
-    let output = std::process::Command::new("powerprofilesctl").arg("get").output().ok()?;
+    let output = std::process::Command::new("powerprofilesctl")
+        .arg("get")
+        .output()
+        .ok()?;
     let profile = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!profile.is_empty()).then_some(profile)
 }
@@ -94,14 +103,25 @@ fn main() -> Result<()> {
             if last_volume != Some((percent, muted)) {
                 last_volume = Some((percent, muted));
                 let icon = if muted { "\u{F026}" } else { "\u{F028}" };
-                let label =
-                    if muted { "Muted".to_string() } else { format!("Volume {percent}%") };
+                let label = if muted {
+                    "Muted".to_string()
+                } else {
+                    format!("Volume {percent}%")
+                };
                 for surface in app_state.surfaces_by_name("Osd") {
                     let instance = surface.component_instance();
-                    instance.set_property("glyph", Value::String(icon.into())).ok();
-                    instance.set_property("label", Value::String(label.clone().into())).ok();
-                    instance.set_property("level", Value::Number(percent as f64 / 100.0)).ok();
-                    instance.set_property("show_progress", Value::Bool(true)).ok();
+                    instance
+                        .set_property("glyph", Value::String(icon.into()))
+                        .ok();
+                    instance
+                        .set_property("label", Value::String(label.clone().into()))
+                        .ok();
+                    instance
+                        .set_property("level", Value::Number(percent as f64 / 100.0))
+                        .ok();
+                    instance
+                        .set_property("show_progress", Value::Bool(true))
+                        .ok();
                 }
                 changed = true;
             }
@@ -113,10 +133,18 @@ fn main() -> Result<()> {
                 let label = format!("Brightness {percent}%");
                 for surface in app_state.surfaces_by_name("Osd") {
                     let instance = surface.component_instance();
-                    instance.set_property("glyph", Value::String("\u{F185}".into())).ok();
-                    instance.set_property("label", Value::String(label.clone().into())).ok();
-                    instance.set_property("level", Value::Number(percent as f64 / 100.0)).ok();
-                    instance.set_property("show_progress", Value::Bool(true)).ok();
+                    instance
+                        .set_property("glyph", Value::String("\u{F185}".into()))
+                        .ok();
+                    instance
+                        .set_property("label", Value::String(label.clone().into()))
+                        .ok();
+                    instance
+                        .set_property("level", Value::Number(percent as f64 / 100.0))
+                        .ok();
+                    instance
+                        .set_property("show_progress", Value::Bool(true))
+                        .ok();
                 }
                 changed = true;
             }
@@ -128,9 +156,15 @@ fn main() -> Result<()> {
                 let label = profile.replace('-', " ");
                 for surface in app_state.surfaces_by_name("Osd") {
                     let instance = surface.component_instance();
-                    instance.set_property("glyph", Value::String("\u{F013}".into())).ok();
-                    instance.set_property("label", Value::String(label.clone().into())).ok();
-                    instance.set_property("show_progress", Value::Bool(false)).ok();
+                    instance
+                        .set_property("glyph", Value::String("\u{F013}".into()))
+                        .ok();
+                    instance
+                        .set_property("label", Value::String(label.clone().into()))
+                        .ok();
+                    instance
+                        .set_property("show_progress", Value::Bool(false))
+                        .ok();
                 }
                 changed = true;
             }

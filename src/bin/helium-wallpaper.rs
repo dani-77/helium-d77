@@ -61,7 +61,9 @@ fn home_dir() -> PathBuf {
 /// default quickshell-d77 uses), overridable via `HELIUM_WALLPAPER_DIR` for
 /// anyone who doesn't want to move/symlink their wallpaper folder to match.
 fn wallpaper_dir() -> PathBuf {
-    std::env::var("HELIUM_WALLPAPER_DIR").map(PathBuf::from).unwrap_or_else(|_| home_dir().join("Wallpaper"))
+    std::env::var("HELIUM_WALLPAPER_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_dir().join("Wallpaper"))
 }
 
 /// Where the last-applied wallpaper's path is persisted, read back both to
@@ -90,7 +92,9 @@ fn clear_persisted() {
 }
 
 fn scan_wallpapers(dir: &Path) -> Vec<WallpaperEntry> {
-    let Ok(entries) = fs::read_dir(dir) else { return vec![] };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return vec![];
+    };
     let mut out: Vec<WallpaperEntry> = entries
         .flatten()
         .filter_map(|entry| {
@@ -104,10 +108,13 @@ fn scan_wallpapers(dir: &Path) -> Vec<WallpaperEntry> {
             }
             let name = path.file_name()?.to_str()?.to_string();
             let path_str = path.to_str()?.to_string();
-            Some(WallpaperEntry { name, path: path_str })
+            Some(WallpaperEntry {
+                name,
+                path: path_str,
+            })
         })
         .collect();
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     out
 }
 
@@ -169,7 +176,12 @@ fn hyprpaper_socket_path() -> Option<PathBuf> {
         let uid = String::from_utf8(uid.stdout).ok()?;
         Some(format!("/run/user/{}", uid.trim()))
     })?;
-    Some(PathBuf::from(runtime_dir).join("hypr").join(sig).join(".hyprpaper.sock"))
+    Some(
+        PathBuf::from(runtime_dir)
+            .join("hypr")
+            .join(sig)
+            .join(".hyprpaper.sock"),
+    )
 }
 
 /// Blocks until hyprpaper's IPC socket exists, up to `timeout`. Used by
@@ -182,7 +194,9 @@ fn hyprpaper_socket_path() -> Option<PathBuf> {
 /// instead of always paying a fixed delay, while still tolerating a slow
 /// one via a generous ceiling.
 fn wait_for_hyprpaper_socket(timeout: Duration) {
-    let Some(sock) = hyprpaper_socket_path() else { return };
+    let Some(sock) = hyprpaper_socket_path() else {
+        return;
+    };
     let start = std::time::Instant::now();
     while !sock.exists() {
         if start.elapsed() >= timeout {
@@ -225,7 +239,9 @@ fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
                 }
                 // Not preloaded yet (or hyprpaper's socket isn't up yet
                 // during the startup race above) — preload and retry.
-                let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
+                let _ = Command::new("hyprctl")
+                    .args(["hyprpaper", "preload", path])
+                    .status();
             }
             if !ok {
                 ok = Command::new("hyprctl")
@@ -241,12 +257,21 @@ fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
             .is_ok_and(|s| s.success()),
         Compositor::Generic => {
             if command_exists("swww") {
-                Command::new("swww").args(["img", path]).status().is_ok_and(|s| s.success())
+                Command::new("swww")
+                    .args(["img", path])
+                    .status()
+                    .is_ok_and(|s| s.success())
             } else if command_exists("swaybg") {
                 let _ = Command::new("pkill").arg("swaybg").status();
-                Command::new("swaybg").args(["-i", path, "-m", "fill"]).spawn().is_ok()
+                Command::new("swaybg")
+                    .args(["-i", path, "-m", "fill"])
+                    .spawn()
+                    .is_ok()
             } else if command_exists("feh") {
-                Command::new("feh").args(["--bg-fill", path]).status().is_ok_and(|s| s.success())
+                Command::new("feh")
+                    .args(["--bg-fill", path])
+                    .status()
+                    .is_ok_and(|s| s.success())
             } else {
                 false
             }
@@ -265,10 +290,14 @@ fn clear_wallpaper() {
     clear_persisted();
     match detect_compositor() {
         Compositor::Hyprland => {
-            let _ = Command::new("hyprctl").args(["hyprpaper", "unload", "all"]).status();
+            let _ = Command::new("hyprctl")
+                .args(["hyprpaper", "unload", "all"])
+                .status();
         }
         Compositor::Sway => {
-            let _ = Command::new("swaymsg").args(["output", "*", "bg", "none"]).status();
+            let _ = Command::new("swaymsg")
+                .args(["output", "*", "bg", "none"])
+                .status();
         }
         Compositor::Generic => {
             if command_exists("swww") {
@@ -281,7 +310,9 @@ fn clear_wallpaper() {
 }
 
 fn escape_slint_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
 }
 
 const CELL_W: u32 = 160;
@@ -312,11 +343,14 @@ fn build_slint_source(images: &[WallpaperEntry], current_index: i32, dir: &Path)
         );
     }
 
-    let rows = if images.is_empty() { 1 } else { (images.len() as u32).div_ceil(cols) };
+    let rows = if images.is_empty() {
+        1
+    } else {
+        (images.len() as u32).div_ceil(cols)
+    };
     let content_height = 2 * PADDING + rows * CELL_H + rows.saturating_sub(1) * GAP;
     let empty = images.is_empty();
-    let empty_message =
-        escape_slint_string(&format!("No images found in\n{}", dir.display()));
+    let empty_message = escape_slint_string(&format!("No images found in\n{}", dir.display()));
 
     // WallpaperCell is only defined when there's at least one image to
     // instantiate it for — an unused, non-exported component is a fatal
@@ -516,31 +550,40 @@ fn main() -> Result<()> {
         let weak = comp.as_weak();
         let images_c = images.clone();
         comp.set_callback("wallpaper_clicked", move |args| {
-            let Some(Value::Number(n)) = args.first() else { return Value::Void };
+            let Some(Value::Number(n)) = args.first() else {
+                return Value::Void;
+            };
             let idx = *n as i32;
             if idx >= 0 {
                 if let Some(entry) = images_c.get(idx as usize) {
                     apply_wallpaper(&entry.path);
                     if let Some(instance) = weak.upgrade() {
-                        instance.set_property("current_index", Value::Number(f64::from(idx))).ok();
+                        instance
+                            .set_property("current_index", Value::Number(f64::from(idx)))
+                            .ok();
                     }
                 }
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let weak = comp.as_weak();
         comp.set_callback("clear_clicked", move |_| {
             clear_wallpaper();
             if let Some(instance) = weak.upgrade() {
-                instance.set_property("current_index", Value::Number(-1.0)).ok();
+                instance
+                    .set_property("current_index", Value::Number(-1.0))
+                    .ok();
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         comp.set_callback("close_requested", move |_| {
             std::process::exit(0);
-        }).ok();
+        })
+        .ok();
     })?;
 
     shell.run()?;

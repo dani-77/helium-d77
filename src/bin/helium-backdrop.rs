@@ -86,7 +86,9 @@ fn state_file_path() -> PathBuf {
 /// filesystem-watch integration for its calloop event loop, so polling on
 /// the same timer OSD already uses this pattern for is the simplest fit).
 fn has_wallpaper() -> bool {
-    let Ok(contents) = std::fs::read_to_string(state_file_path()) else { return false };
+    let Ok(contents) = std::fs::read_to_string(state_file_path()) else {
+        return false;
+    };
     let path = contents.trim();
     !path.is_empty() && Path::new(path).is_file()
 }
@@ -120,7 +122,9 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
     let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
         return HashMap::new();
     };
-    let Some(list) = parsed.as_array() else { return HashMap::new() };
+    let Some(list) = parsed.as_array() else {
+        return HashMap::new();
+    };
     list.iter()
         .filter_map(|m| {
             let name = m.get("name")?.as_str()?.to_string();
@@ -132,8 +136,18 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
             // logical size and Hyprland renders it offset/clipped.
             let width = m.get("width")?.as_u64()? as f64;
             let height = m.get("height")?.as_u64()? as f64;
-            let scale = m.get("scale").and_then(|v| v.as_f64()).unwrap_or(1.0).max(1.0);
-            Some((name, ((width / scale).round() as u32, (height / scale).round() as u32)))
+            let scale = m
+                .get("scale")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0)
+                .max(1.0);
+            Some((
+                name,
+                (
+                    (width / scale).round() as u32,
+                    (height / scale).round() as u32,
+                ),
+            ))
         })
         .collect()
 }
@@ -146,11 +160,15 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
 /// the focused one.
 fn sway_monitors() -> HashMap<String, (u32, u32)> {
     const GET_OUTPUTS: u32 = 3;
-    let Some(body) = sway_command(GET_OUTPUTS, b"") else { return HashMap::new() };
+    let Some(body) = sway_command(GET_OUTPUTS, b"") else {
+        return HashMap::new();
+    };
     let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return HashMap::new();
     };
-    let Some(list) = parsed.as_array() else { return HashMap::new() };
+    let Some(list) = parsed.as_array() else {
+        return HashMap::new();
+    };
     list.iter()
         .filter_map(|o| {
             let name = o.get("name")?.as_str()?.to_string();
@@ -189,12 +207,16 @@ fn sway_command(msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
 /// extended to return every output keyed by its own connector name
 /// (the JSON object's key) instead of bailing unless there's exactly one.
 fn niri_monitors() -> HashMap<String, (u32, u32)> {
-    let Some(reply) = niri_command(r#"{"Outputs":null}"#) else { return HashMap::new() };
+    let Some(reply) = niri_command(r#"{"Outputs":null}"#) else {
+        return HashMap::new();
+    };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(reply.trim()) else {
         return HashMap::new();
     };
-    let Some(outputs) =
-        value.get("Ok").and_then(|v| v.get("Outputs")).and_then(|v| v.as_object())
+    let Some(outputs) = value
+        .get("Ok")
+        .and_then(|v| v.get("Outputs"))
+        .and_then(|v| v.as_object())
     else {
         return HashMap::new();
     };
@@ -294,7 +316,9 @@ fn main() -> Result<()> {
     // so a wallpaper chosen before this process started is respected
     // immediately instead of only after the first tick.
     shell.with_all_surfaces(|_name, instance| {
-        instance.set_property("has_wallpaper", Value::Bool(last)).ok();
+        instance
+            .set_property("has_wallpaper", Value::Bool(last))
+            .ok();
     });
 
     // Explicitly resize each output's own Backdrop instance to that
@@ -329,7 +353,10 @@ fn main() -> Result<()> {
         if now != last {
             last = now;
             for surface in app_state.surfaces_by_name("Backdrop") {
-                surface.component_instance().set_property("has_wallpaper", Value::Bool(now)).ok();
+                surface
+                    .component_instance()
+                    .set_property("has_wallpaper", Value::Bool(now))
+                    .ok();
             }
         }
         TimeoutAction::ToDuration(POLL_INTERVAL)

@@ -83,7 +83,12 @@ fn parse_desktop_file(path: &std::path::Path) -> Option<AppEntry> {
         return None;
     }
     let icon = icon.and_then(|i| resolve_icon(&i));
-    Some(AppEntry { name, exec, terminal, icon })
+    Some(AppEntry {
+        name,
+        exec,
+        terminal,
+        icon,
+    })
 }
 
 /// Icon theme to prefer, plus its own fallback chain, before falling back
@@ -105,7 +110,9 @@ const PREFERRED_ICON_THEMES: &[&str] = &["Papirus-Dark", "breeze-dark", "hicolor
 /// broken image.
 fn resolve_icon(name: &str) -> Option<String> {
     if name.starts_with('/') {
-        return std::path::Path::new(name).is_file().then(|| name.to_string());
+        return std::path::Path::new(name)
+            .is_file()
+            .then(|| name.to_string());
     }
 
     const SIZES: &[&str] = &["scalable", "48x48", "64x64", "128x128", "32x32", "256x256"];
@@ -114,7 +121,10 @@ fn resolve_icon(name: &str) -> Option<String> {
     let find_in = |theme_dir: &std::path::Path| {
         for size in SIZES {
             for ext in EXTS {
-                let candidate = theme_dir.join(size).join("apps").join(format!("{name}.{ext}"));
+                let candidate = theme_dir
+                    .join(size)
+                    .join("apps")
+                    .join(format!("{name}.{ext}"));
                 if candidate.is_file() {
                     return candidate.to_str().map(str::to_string);
                 }
@@ -171,7 +181,9 @@ fn scan_apps() -> Vec<AppEntry> {
 
     let mut apps = Vec::new();
     for dir in dirs {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("desktop") {
@@ -181,7 +193,7 @@ fn scan_apps() -> Vec<AppEntry> {
             }
         }
     }
-    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    apps.sort_by_key(|a| a.name.to_lowercase());
     apps.dedup_by(|a, b| a.name == b.name);
     apps
 }
@@ -206,7 +218,12 @@ fn escape_slint_string(s: &str) -> String {
 
 fn launch_app(app: &AppEntry, terminal: &str) {
     let spawn_result = if app.terminal {
-        Command::new(terminal).arg("-e").arg("sh").arg("-c").arg(&app.exec).spawn()
+        Command::new(terminal)
+            .arg("-e")
+            .arg("sh")
+            .arg("-c")
+            .arg(&app.exec)
+            .spawn()
     } else {
         Command::new("sh").arg("-c").arg(&app.exec).spawn()
     };
@@ -226,9 +243,18 @@ fn visible_indices(apps: &[AppEntry], query: &str) -> Vec<usize> {
 
 fn push_filter_state(instance: &ComponentInstance, apps: &[AppEntry], query: &str, selected: i32) {
     let visible = visible_indices(apps, query);
-    let flags: Vec<Value> = (0..apps.len()).map(|i| Value::Bool(visible.contains(&i))).collect();
-    instance.set_property("row_visible", Value::Model(ModelRc::new(VecModel::from(flags)))).ok();
-    instance.set_property("selected_index", Value::Number(f64::from(selected))).ok();
+    let flags: Vec<Value> = (0..apps.len())
+        .map(|i| Value::Bool(visible.contains(&i)))
+        .collect();
+    instance
+        .set_property(
+            "row_visible",
+            Value::Model(ModelRc::new(VecModel::from(flags))),
+        )
+        .ok();
+    instance
+        .set_property("selected_index", Value::Number(f64::from(selected)))
+        .ok();
 }
 
 const ROW_HEIGHT: u32 = 32;
@@ -255,7 +281,10 @@ const LIST_VIEWPORT_HEIGHT: u32 =
 /// offset depends on the row's position in the full list, while its height
 /// contribution only comes from rows that are actually visible before it.
 fn row_extent(visible: &[usize], selected_index: i32) -> (f32, f32) {
-    let pos = visible.iter().position(|&i| i as i32 == selected_index).unwrap_or(0) as u32;
+    let pos = visible
+        .iter()
+        .position(|&i| i as i32 == selected_index)
+        .unwrap_or(0) as u32;
     let y_top = (pos * ROW_HEIGHT + selected_index as u32 * ROW_SPACING) as f32;
     (y_top, y_top + ROW_HEIGHT as f32)
 }
@@ -263,11 +292,7 @@ fn row_extent(visible: &[usize], selected_index: i32) -> (f32, f32) {
 /// Nudges `list_scroll_y` (if needed) so the selected row is fully inside
 /// the visible list area — mimicking what dragging the list with the mouse
 /// would achieve, but from Up/Down/typing instead.
-fn scroll_selected_into_view(
-    instance: &ComponentInstance,
-    visible: &[usize],
-    selected_index: i32,
-) {
+fn scroll_selected_into_view(instance: &ComponentInstance, visible: &[usize], selected_index: i32) {
     if selected_index < 0 {
         return;
     }
@@ -284,7 +309,9 @@ fn scroll_selected_into_view(
     } else {
         return;
     };
-    instance.set_property("list_scroll_y", Value::Number(new_scroll as f64)).ok();
+    instance
+        .set_property("list_scroll_y", Value::Number(new_scroll as f64))
+        .ok();
 }
 
 fn build_slint_source(apps: &[AppEntry]) -> String {
@@ -465,9 +492,12 @@ fn main() -> Result<()> {
 
     shell.with_surface("Launcher", |comp| {
         let weak = comp.as_weak();
-        let (apps_q, query_q, selected_q) = (apps.clone(), query_state.clone(), selected_state.clone());
+        let (apps_q, query_q, selected_q) =
+            (apps.clone(), query_state.clone(), selected_state.clone());
         comp.set_callback("query_changed", move |args| {
-            let Some(Value::String(query)) = args.first() else { return Value::Void };
+            let Some(Value::String(query)) = args.first() else {
+                return Value::Void;
+            };
             let query = query.to_string();
             let visible = visible_indices(&apps_q, &query);
             let selected = visible.first().map(|&i| i as i32).unwrap_or(-1);
@@ -478,32 +508,44 @@ fn main() -> Result<()> {
                 scroll_selected_into_view(&instance, &visible, selected);
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let weak = comp.as_weak();
-        let (apps_n, query_n, selected_n) = (apps.clone(), query_state.clone(), selected_state.clone());
+        let (apps_n, query_n, selected_n) =
+            (apps.clone(), query_state.clone(), selected_state.clone());
         comp.set_callback("navigate", move |args| {
-            let Some(Value::Number(delta)) = args.first() else { return Value::Void };
+            let Some(Value::Number(delta)) = args.first() else {
+                return Value::Void;
+            };
             let delta = *delta as i32;
             let visible = visible_indices(&apps_n, &query_n.borrow());
             if !visible.is_empty() {
                 let current = *selected_n.borrow();
-                let pos = visible.iter().position(|&i| i as i32 == current).unwrap_or(0) as i32;
+                let pos = visible
+                    .iter()
+                    .position(|&i| i as i32 == current)
+                    .unwrap_or(0) as i32;
                 let len = visible.len() as i32;
                 let new_pos = ((pos + delta) % len + len) % len;
                 let new_selected = visible[new_pos as usize] as i32;
                 *selected_n.borrow_mut() = new_selected;
                 if let Some(instance) = weak.upgrade() {
-                    instance.set_property("selected_index", Value::Number(f64::from(new_selected))).ok();
+                    instance
+                        .set_property("selected_index", Value::Number(f64::from(new_selected)))
+                        .ok();
                     scroll_selected_into_view(&instance, &visible, new_selected);
                 }
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let (apps_c, terminal_c) = (apps.clone(), terminal.clone());
         comp.set_callback("app_clicked", move |args| {
-            let Some(Value::Number(n)) = args.first() else { return Value::Void };
+            let Some(Value::Number(n)) = args.first() else {
+                return Value::Void;
+            };
             let idx = *n as i32;
             if idx >= 0 {
                 if let Some(app) = apps_c.get(idx as usize) {
@@ -511,7 +553,8 @@ fn main() -> Result<()> {
                 }
             }
             std::process::exit(0);
-        }).ok();
+        })
+        .ok();
     })?;
 
     shell.run()?;

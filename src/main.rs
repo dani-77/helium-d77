@@ -95,8 +95,8 @@ fn niri_monitor_width() -> Option<u32> {
 /// i3-ipc socket (`$SWAYSOCK`) — `helium_wsl::compositors::detect()` has no
 /// Sway backend whatsoever, Hyprland or niri only, so this is additive
 /// rather than a workaround for a broken upstream parse like
-/// `niri_monitor_width()` above. Speaks the protocol directly (magic bytes
-/// + native-endian length/type header, per Sway's own `IPC` documentation)
+/// `niri_monitor_width()` above. Speaks the protocol directly (magic bytes +
+/// native-endian length/type header, per Sway's own `IPC` documentation)
 /// rather than shelling out to `swaymsg`, the same reasoning `hypr_command`/
 /// `niri_command` below already use for their compositors.
 fn sway_monitor_width() -> Option<u32> {
@@ -107,7 +107,11 @@ fn sway_monitor_width() -> Option<u32> {
     outputs
         .iter()
         .find(|o| o.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-        .or_else(|| outputs.iter().find(|o| o.get("active").and_then(|v| v.as_bool()).unwrap_or(false)))
+        .or_else(|| {
+            outputs
+                .iter()
+                .find(|o| o.get("active").and_then(|v| v.as_bool()).unwrap_or(false))
+        })
         .or_else(|| outputs.first())
         .and_then(|o| o.get("rect")?.get("width")?.as_u64())
         .map(|w| w as u32)
@@ -131,9 +135,15 @@ fn sway_monitor_width() -> Option<u32> {
 /// workspaces anyway.
 fn sway_workspaces() -> Vec<Workspace> {
     const GET_WORKSPACES: u32 = 1;
-    let Some(body) = sway_command(GET_WORKSPACES, b"") else { return vec![] };
-    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&body) else { return vec![] };
-    let Some(items) = raw.as_array() else { return vec![] };
+    let Some(body) = sway_command(GET_WORKSPACES, b"") else {
+        return vec![];
+    };
+    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return vec![];
+    };
+    let Some(items) = raw.as_array() else {
+        return vec![];
+    };
     items
         .iter()
         .filter_map(|w| {
@@ -144,7 +154,11 @@ fn sway_workspaces() -> Vec<Workspace> {
             let name = w.get("name")?.as_str()?.to_string();
             let active = w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false);
             let occupied = !w.get("representation").map(|v| v.is_null()).unwrap_or(true);
-            let monitor = w.get("output").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let monitor = w
+                .get("output")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
             Some(Workspace {
                 id: num as u32,
                 name,
@@ -211,7 +225,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Seed initial workspace state so the bar isn't blank before the first tick.
     apply_workspaces(&mut shell, &current_workspaces());
     if let Some(w) = weather::status() {
-        shell.set("Bar", "weather_text", format!("{}  {}", w.condition, w.temperature));
+        shell.set(
+            "Bar",
+            "weather_text",
+            format!("{}  {}", w.condition, w.temperature),
+        );
     }
 
     // Clicking a workspace pill dispatches a real workspace switch.
@@ -225,8 +243,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // session-menu binaries (spawn-on-demand, like rofi — see their doc
     // comments for why they're separate processes instead of toggled panels
     // inside this one).
-    shell.on_signal("Bar", "launcher_clicked", |_| spawn_sibling("helium-launcher"));
-    shell.on_signal("Bar", "session_clicked", |_| spawn_sibling("helium-session"));
+    shell.on_signal("Bar", "launcher_clicked", |_| {
+        spawn_sibling("helium-launcher")
+    });
+    shell.on_signal("Bar", "session_clicked", |_| {
+        spawn_sibling("helium-session")
+    });
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
     shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());
     shell.on_signal("Bar", "battery_clicked", |_| cycle_power_profile());
@@ -288,7 +310,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if let Some(vol) = sysinfo::volume() {
-            ctx.set("Bar", "vol_text", if vol.muted { "muted".to_string() } else { format!("{}%", vol.percent) });
+            ctx.set(
+                "Bar",
+                "vol_text",
+                if vol.muted {
+                    "muted".to_string()
+                } else {
+                    format!("{}%", vol.percent)
+                },
+            );
             ctx.set("Bar", "vol_muted", vol.muted);
         }
     })?;
@@ -298,7 +328,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // network/stats tick above.
     shell.on_tick(weather::POLL_INTERVAL, |ctx| {
         if let Some(w) = weather::status() {
-            ctx.set("Bar", "weather_text", format!("{}  {}", w.condition, w.temperature));
+            ctx.set(
+                "Bar",
+                "weather_text",
+                format!("{}  {}", w.condition, w.temperature),
+            );
         }
     })?;
 
@@ -311,7 +345,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// development and once installed system-wide (e.g. `/usr/bin`), as long as
 /// the sibling binary was installed to the same directory.
 fn spawn_sibling(name: &str) {
-    let Ok(exe) = std::env::current_exe() else { return };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
     let Some(dir) = exe.parent() else { return };
     let _ = std::process::Command::new(dir.join(name)).spawn();
 }
@@ -319,7 +355,9 @@ fn spawn_sibling(name: &str) {
 /// Toggles Master mute via `amixer`, matching the control name `sysinfo::volume()`
 /// already reads and the mute-toggle approach quickshell-d77/fabric-d77 use.
 fn toggle_mute() {
-    let _ = std::process::Command::new("amixer").args(["set", "Master", "toggle"]).spawn();
+    let _ = std::process::Command::new("amixer")
+        .args(["set", "Master", "toggle"])
+        .spawn();
 }
 
 /// Power profiles cycled by clicking the battery chip, in the order
@@ -341,7 +379,9 @@ fn cycle_power_profile() {
         .and_then(|c| POWER_PROFILES.iter().position(|p| *p == c))
         .unwrap_or(POWER_PROFILES.len() - 1);
     let next = POWER_PROFILES[(idx + 1) % POWER_PROFILES.len()];
-    let _ = std::process::Command::new("powerprofilesctl").args(["set", next]).spawn();
+    let _ = std::process::Command::new("powerprofilesctl")
+        .args(["set", next])
+        .spawn();
 }
 
 /// Opens a floating terminal running `nmtui`, the same way quickshell-d77 and
@@ -365,14 +405,20 @@ fn launch_nmtui() {
         .map(|(bin, cmd)| format!("command -v {bin} >/dev/null 2>&1 && exec setsid {cmd}"))
         .collect::<Vec<_>>()
         .join(" || ");
-    let _ = std::process::Command::new("sh").arg("-c").arg(script).spawn();
+    let _ = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .spawn();
 }
 
 /// Sends a command to Hyprland's control socket and returns its reply.
 fn hypr_command(cmd: &str) -> Option<String> {
     let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
     let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
-    let path = std::path::PathBuf::from(runtime).join("hypr").join(sig).join(".socket.sock");
+    let path = std::path::PathBuf::from(runtime)
+        .join("hypr")
+        .join(sig)
+        .join(".socket.sock");
     let mut stream = UnixStream::connect(&path).ok()?;
     stream.write_all(cmd.as_bytes()).ok()?;
     stream.shutdown(std::net::Shutdown::Write).ok();

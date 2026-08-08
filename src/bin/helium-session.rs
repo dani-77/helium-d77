@@ -59,9 +59,21 @@ fn actions() -> Vec<Action> {
             label: "Lock",
             command: lock_command(),
         },
-        Action { icon: "\u{F186}", label: "Suspend", command: session_command("suspend") },
-        Action { icon: "\u{F021}", label: "Reboot", command: session_command("reboot") },
-        Action { icon: "\u{F011}", label: "Shutdown", command: session_command("poweroff") },
+        Action {
+            icon: "\u{F186}",
+            label: "Suspend",
+            command: session_command("suspend"),
+        },
+        Action {
+            icon: "\u{F021}",
+            label: "Reboot",
+            command: session_command("reboot"),
+        },
+        Action {
+            icon: "\u{F011}",
+            label: "Shutdown",
+            command: session_command("poweroff"),
+        },
         Action {
             icon: "\u{F08B}",
             label: "Logout",
@@ -206,7 +218,9 @@ fn main() -> Result<()> {
         let weak = comp.as_weak();
         let (actions_n, selected_n) = (actions.clone(), selected_state.clone());
         comp.set_callback("navigate", move |args| {
-            let Some(Value::Number(delta)) = args.first() else { return Value::Void };
+            let Some(Value::Number(delta)) = args.first() else {
+                return Value::Void;
+            };
             let delta = *delta as i32;
             let order = nav_order(actions_n.len());
             let current = *selected_n.borrow();
@@ -216,14 +230,19 @@ fn main() -> Result<()> {
             let new_selected = order[new_pos as usize];
             *selected_n.borrow_mut() = new_selected;
             if let Some(instance) = weak.upgrade() {
-                instance.set_property("selected_index", Value::Number(f64::from(new_selected))).ok();
+                instance
+                    .set_property("selected_index", Value::Number(f64::from(new_selected)))
+                    .ok();
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let actions_c = actions.clone();
         comp.set_callback("action_clicked", move |args| {
-            let Some(Value::Number(n)) = args.first() else { return Value::Void };
+            let Some(Value::Number(n)) = args.first() else {
+                return Value::Void;
+            };
             let idx = *n as i32;
             if idx >= 0 {
                 if let Some(action) = actions_c.get(idx as usize) {
@@ -231,7 +250,8 @@ fn main() -> Result<()> {
                 }
             }
             std::process::exit(0);
-        }).ok();
+        })
+        .ok();
     })?;
 
     shell.run()?;

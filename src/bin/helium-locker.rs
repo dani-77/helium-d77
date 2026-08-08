@@ -20,7 +20,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use layer_shika::prelude::*;
-use pam_client2::{Context, Flag, conv_mock::Conversation};
+use pam_client2::{conv_mock::Conversation, Context, Flag};
 
 fn verify_password(password: &str) -> bool {
     let Ok(username) = std::env::var("USER") else {
@@ -91,10 +91,14 @@ fn main() -> Result<()> {
 
     shell
         .select_lock(Surface::all())
-        .on_callback("current_time", |_ctx| helium_wsl::services::time::formatted("%H:%M"));
+        .on_callback("current_time", |_ctx| {
+            helium_wsl::services::time::formatted("%H:%M")
+        });
     shell
         .select_lock(Surface::all())
-        .on_callback("current_date", |_ctx| helium_wsl::services::time::formatted("%A, %d %B"));
+        .on_callback("current_date", |_ctx| {
+            helium_wsl::services::time::formatted("%A, %d %B")
+        });
 
     lock.activate()?;
 

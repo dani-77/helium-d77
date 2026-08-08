@@ -34,7 +34,12 @@ fn rt() -> &'static Runtime {
     })
 }
 
-fn get_property(conn: &zbus::Connection, path: &str, iface: &str, prop: &str) -> zbus::Result<OwnedValue> {
+fn get_property(
+    conn: &zbus::Connection,
+    path: &str,
+    iface: &str,
+    prop: &str,
+) -> zbus::Result<OwnedValue> {
     let reply = rt().block_on(conn.call_method(
         Some(NM),
         path,
@@ -56,30 +61,48 @@ pub fn status() -> zbus::Result<NetInfo> {
     let state = u32::try_from(&state_val).unwrap_or(0);
     let connected = matches!(state, 50 | 60 | 70);
 
-    let reply = rt().block_on(conn.call_method(Some(NM), NM_PATH, Some(NM_IF), "GetDevices", &()))?;
+    let reply =
+        rt().block_on(conn.call_method(Some(NM), NM_PATH, Some(NM_IF), "GetDevices", &()))?;
     let devices: Vec<OwnedObjectPath> = reply.body().deserialize()?;
 
     let mut ssid = None;
     let mut signal_strength = None;
     let mut has_wired = false;
     for dev in &devices {
-        let Ok(dtype_val) = get_property(&conn, dev.as_str(), DEV_IF, "DeviceType") else { continue };
+        let Ok(dtype_val) = get_property(&conn, dev.as_str(), DEV_IF, "DeviceType") else {
+            continue;
+        };
         match u32::try_from(&dtype_val).unwrap_or(0) {
             2 => {
-                if let Ok(ap_val) = get_property(&conn, dev.as_str(), WIFI_IF, "ActiveAccessPoint") {
+                if let Ok(ap_val) = get_property(&conn, dev.as_str(), WIFI_IF, "ActiveAccessPoint")
+                {
                     if let Value::ObjectPath(ap_path) = &*ap_val {
                         if !ap_path.as_str().is_empty() && ap_path.as_str() != "/" {
-                            if let Ok(ssid_val) = get_property(&conn, ap_path.as_str(), AP_IF, "Ssid") {
+                            if let Ok(ssid_val) =
+                                get_property(&conn, ap_path.as_str(), AP_IF, "Ssid")
+                            {
                                 if let Value::Array(arr) = &*ssid_val {
                                     let bytes: Vec<u8> = arr
                                         .inner()
                                         .iter()
-                                        .filter_map(|v| if let Value::U8(b) = v { Some(*b) } else { None })
+                                        .filter_map(|v| {
+                                            if let Value::U8(b) = v {
+                                                Some(*b)
+                                            } else {
+                                                None
+                                            }
+                                        })
                                         .collect();
-                                    ssid = Some(String::from_utf8_lossy(&bytes).trim_matches('\0').to_string());
+                                    ssid = Some(
+                                        String::from_utf8_lossy(&bytes)
+                                            .trim_matches('\0')
+                                            .to_string(),
+                                    );
                                 }
                             }
-                            if let Ok(strength_val) = get_property(&conn, ap_path.as_str(), AP_IF, "Strength") {
+                            if let Ok(strength_val) =
+                                get_property(&conn, ap_path.as_str(), AP_IF, "Strength")
+                            {
                                 if let Value::U8(s) = &*strength_val {
                                     signal_strength = Some(*s);
                                 }
@@ -101,7 +124,11 @@ pub fn status() -> zbus::Result<NetInfo> {
 
     Ok(NetInfo {
         connected,
-        ssid: ssid.or(if has_wired { Some("wired".to_string()) } else { None }),
+        ssid: ssid.or(if has_wired {
+            Some("wired".to_string())
+        } else {
+            None
+        }),
         signal_strength,
     })
 }
