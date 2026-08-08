@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (build, test, fmt, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpam0g-dev
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --release --locked
+
+      - name: cargo test
+        run: cargo test --release --locked
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  make:
+    name: Makefile (build, install, uninstall)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpam0g-dev
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: make build
+        run: make build
+
+      # Installs into a throwaway DESTDIR rather than the real /usr, so this
+      # runner never touches system paths. helium-locker is intentionally
+      # NOT part of the `install` target (see the Makefile's own header
+      # comment - unusable under niri right now), so it's not checked here.
+      - name: make install (staging DESTDIR)
+        run: make install DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+
+      - name: verify installed files
+        run: |
+          set -eu
+          bindir="${{ github.workspace }}/staging/usr/bin"
+          for bin in helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop; do
+            test -x "$bindir/$bin"
+          done
+          test -f "${{ github.workspace }}/staging/usr/share/helium-d77/d77-logo.svg"
+
+      - name: make uninstall removes everything it installed
+        run: |
+          set -eu
+          make uninstall DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+          test ! -e "${{ github.workspace }}/staging/usr/bin/helium-shell"
+          test ! -e "${{ github.workspace }}/staging/usr/share/helium-d77/d77-logo.svg"
