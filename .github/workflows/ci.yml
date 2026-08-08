@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (build, test, fmt, clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # libpam0g-dev: pam-client2, used by helium-locker.
+      # libfontconfig1-dev: Slint's font backend (yeslogic-fontconfig-sys)
+      # pkg-config-probes for `fontconfig`.
+      # libxkbcommon-dev: smithay-client-toolkit's "xkbcommon" feature (on
+      # here) pkg-config-probes for it directly (build.rs: `Config::new()
+      # .find("xkbcommon")`).
+      # libwayland-dev: NOT actually required at build time - wayland-sys
+      # has both its "client" and "dlopen" features enabled in this tree,
+      # and dlopen wins (build.rs returns before ever reaching the
+      # wayland-client pkg-config probe, loading libwayland-client.so.0 at
+      # runtime instead). Installed anyway since it's cheap insurance
+      # against that resolution changing.
+      # All confirmed reachable via `cargo tree -e normal,build -i <crate>`
+      # / `cargo tree -e features -i <crate>` rather than by trusting local
+      # `cargo build` success - this sandbox has ended up with most of
+      # these dev packages already installed from unrelated earlier work,
+      # which silently masked every one of the above the first time around.
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpam0g-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --release --locked
+
+      - name: cargo test
+        run: cargo test --release --locked
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  make:
+    name: Makefile (build, install, uninstall)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # libpam0g-dev: pam-client2, used by helium-locker.
+      # libfontconfig1-dev: Slint's font backend (yeslogic-fontconfig-sys)
+      # pkg-config-probes for `fontconfig`.
+      # libxkbcommon-dev: smithay-client-toolkit's "xkbcommon" feature (on
+      # here) pkg-config-probes for it directly (build.rs: `Config::new()
+      # .find("xkbcommon")`).
+      # libwayland-dev: NOT actually required at build time - wayland-sys
+      # has both its "client" and "dlopen" features enabled in this tree,
+      # and dlopen wins (build.rs returns before ever reaching the
+      # wayland-client pkg-config probe, loading libwayland-client.so.0 at
+      # runtime instead). Installed anyway since it's cheap insurance
+      # against that resolution changing.
+      # All confirmed reachable via `cargo tree -e normal,build -i <crate>`
+      # / `cargo tree -e features -i <crate>` rather than by trusting local
+      # `cargo build` success - this sandbox has ended up with most of
+      # these dev packages already installed from unrelated earlier work,
+      # which silently masked every one of the above the first time around.
+      - name: Install system dev headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libpam0g-dev libfontconfig1-dev libxkbcommon-dev libwayland-dev
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: make build
+        run: make build
+
+      # Installs into a throwaway DESTDIR rather than the real /usr, so this
+      # runner never touches system paths. helium-locker is intentionally
+      # NOT part of the `install` target (see the Makefile's own header
+      # comment - unusable under niri right now), so it's not checked here.
+      - name: make install (staging DESTDIR)
+        run: make install DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+
+      - name: verify installed files
+        run: |
+          set -eu
+          bindir="${{ github.workspace }}/staging/usr/bin"
+          for bin in helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama; do
+            test -x "$bindir/$bin"
+          done
+          test -f "${{ github.workspace }}/staging/usr/share/helium-d77/d77-logo.svg"
+
+      - name: make uninstall removes everything it installed
+        run: |
+          set -eu
+          make uninstall DESTDIR="${{ github.workspace }}/staging" PREFIX=/usr
+          test ! -e "${{ github.workspace }}/staging/usr/bin/helium-shell"
+          test ! -e "${{ github.workspace }}/staging/usr/share/helium-d77/d77-logo.svg"

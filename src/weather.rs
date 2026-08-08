@@ -26,7 +26,10 @@ pub fn status() -> Option<WeatherInfo> {
     if condition.is_empty() {
         return None;
     }
-    Some(WeatherInfo { condition, temperature })
+    Some(WeatherInfo {
+        condition,
+        temperature,
+    })
 }
 
 /// How often to re-check the weather — it doesn't change fast, and this is

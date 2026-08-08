@@ -40,8 +40,8 @@
 //! (`auto_pull_active`/`auto_pull_cancel` in `ui/ollama.slint`) rather than
 //! happening silently, and cancellable mid-download via `cancel_pull`.
 
-use layer_shika::calloop::TimeoutAction;
 use layer_shika::calloop::channel::Sender;
+use layer_shika::calloop::TimeoutAction;
 use layer_shika::prelude::*;
 use layer_shika::slint::{ModelRc, VecModel};
 use layer_shika::slint_interpreter::{ComponentHandle, Value};
@@ -114,7 +114,12 @@ fn nvidia_vram_mb() -> Option<u64> {
     if !output.status.success() {
         return None;
     }
-    String::from_utf8_lossy(&output.stdout).lines().next()?.trim().parse().ok()
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// There's no portable way to read AMD/Intel VRAM without vendor-specific
@@ -123,7 +128,9 @@ fn nvidia_vram_mb() -> Option<u64> {
 /// filtering out the display-controller names integrated chipsets
 /// commonly report themselves as.
 fn other_dedicated_gpu_present() -> bool {
-    let Ok(output) = Command::new("lspci").output() else { return false };
+    let Ok(output) = Command::new("lspci").output() else {
+        return false;
+    };
     if !output.status.success() {
         return false;
     }
@@ -171,7 +178,9 @@ fn size_hint(tier: &GpuTier) -> String {
             } else {
                 "70B (ex: llama3.1:70b)"
             };
-            format!("NVIDIA GPU detected (~{gb:.0}GB VRAM) — models up to ~{range} should run well.")
+            format!(
+                "NVIDIA GPU detected (~{gb:.0}GB VRAM) — models up to ~{range} should run well."
+            )
         }
         GpuTier::OtherDedicated => "Dedicated GPU detected (non-NVIDIA) — exact VRAM unknown; \
             ~7B models are usually a good starting point."
@@ -191,7 +200,16 @@ fn size_hint(tier: &GpuTier) -> String {
 /// requests, not just that a process exists.
 fn ollama_running() -> bool {
     let output = Command::new("curl")
-        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "2", OLLAMA_BASE])
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "2",
+            OLLAMA_BASE,
+        ])
         .output();
     matches!(output, Ok(o) if o.status.success() && o.stdout == b"200")
 }
@@ -202,7 +220,16 @@ fn ollama_running() -> bool {
 /// already used for the status/model-list polls above.
 fn internet_reachable() -> bool {
     let output = Command::new("curl")
-        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "3", "https://ollama.com"])
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "3",
+            "https://ollama.com",
+        ])
         .output();
     matches!(output, Ok(o) if o.status.success() && o.stdout.starts_with(b"2"))
 }
@@ -217,7 +244,12 @@ fn fetch_models() -> Option<Vec<String>> {
     }
     let parsed: Json = serde_json::from_slice(&output.stdout).ok()?;
     let models = parsed.get("models")?.as_array()?;
-    Some(models.iter().filter_map(|m| m.get("name")?.as_str().map(str::to_string)).collect())
+    Some(
+        models
+            .iter()
+            .filter_map(|m| m.get("name")?.as_str().map(str::to_string))
+            .collect(),
+    )
 }
 
 /// Picks a model from a freshly (re)loaded install list, same precedence
@@ -232,7 +264,10 @@ fn pick_model(names: &[String], saved: Option<&str>) -> Option<String> {
 }
 
 fn models_value(names: &[String]) -> Value {
-    let items: Vec<Value> = names.iter().map(|n| Value::String(n.as_str().into())).collect();
+    let items: Vec<Value> = names
+        .iter()
+        .map(|n| Value::String(n.as_str().into()))
+        .collect();
     Value::Model(ModelRc::new(VecModel::from(items)))
 }
 
@@ -245,7 +280,11 @@ fn dropdown_height_px(model_count: usize) -> f64 {
 
 enum OllamaEvent {
     PullProgress(String),
-    PullFinished { message: String, ok: bool, auto: bool },
+    PullFinished {
+        message: String,
+        ok: bool,
+        auto: bool,
+    },
     GenerateToken(String),
     GenerateFinished,
 }
@@ -263,7 +302,9 @@ struct PullHandle {
 type SharedPullHandle = std::sync::Arc<PullHandle>;
 
 fn cancel_pull(handle: &SharedPullHandle) {
-    handle.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    handle
+        .cancelled
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     if let Some(child) = handle.child.lock().unwrap().as_mut() {
         let _ = child.kill();
     }
@@ -279,7 +320,9 @@ struct GenerateHandle {
 type SharedGenerateHandle = std::sync::Arc<GenerateHandle>;
 
 fn cancel_generate(handle: &SharedGenerateHandle) {
-    handle.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    handle
+        .cancelled
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     if let Some(child) = handle.child.lock().unwrap().as_mut() {
         let _ = child.kill();
     }
@@ -297,11 +340,22 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
     let handle: SharedPullHandle = Default::default();
     let handle_thread = handle.clone();
     thread::spawn(move || {
-        tx.send(OllamaEvent::PullProgress(format!("Installing '{model}'..."))).ok();
+        tx.send(OllamaEvent::PullProgress(format!(
+            "Installing '{model}'..."
+        )))
+        .ok();
 
         let body = serde_json::json!({ "name": model, "stream": true }).to_string();
         let child = Command::new("curl")
-            .args(["-s", "-N", "-X", "POST", &format!("{OLLAMA_BASE}/api/pull"), "-d", &body])
+            .args([
+                "-s",
+                "-N",
+                "-X",
+                "POST",
+                &format!("{OLLAMA_BASE}/api/pull"),
+                "-d",
+                &body,
+            ])
             .stdout(Stdio::piped())
             .spawn();
 
@@ -323,9 +377,14 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
 
         if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
-                let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
+                let Ok(chunk) = serde_json::from_str::<Json>(&line) else {
+                    continue;
+                };
                 if let Some(err) = chunk.get("error").and_then(|v| v.as_str()) {
-                    tx.send(OllamaEvent::PullProgress(format!("Error installing '{model}': {err}"))).ok();
+                    tx.send(OllamaEvent::PullProgress(format!(
+                        "Error installing '{model}': {err}"
+                    )))
+                    .ok();
                     continue;
                 }
                 let status = chunk.get("status").and_then(|v| v.as_str()).unwrap_or("");
@@ -349,14 +408,18 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
             .unwrap()
             .take()
             .is_some_and(|mut c| c.wait().is_ok_and(|s| s.success()));
-        let message = if handle_thread.cancelled.load(std::sync::atomic::Ordering::SeqCst) {
+        let message = if handle_thread
+            .cancelled
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
             format!("Installation of '{model}' cancelled.")
         } else if ok {
             format!("'{model}' installed successfully.")
         } else {
             format!("Failed to install '{model}'.")
         };
-        tx.send(OllamaEvent::PullFinished { message, ok, auto }).ok();
+        tx.send(OllamaEvent::PullFinished { message, ok, auto })
+            .ok();
     });
     handle
 }
@@ -430,10 +493,15 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
         let mut got_any = false;
         if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
-                let Ok(chunk) = serde_json::from_str::<Json>(&line) else { continue };
+                let Ok(chunk) = serde_json::from_str::<Json>(&line) else {
+                    continue;
+                };
                 got_any = true;
                 if let Some(err) = chunk.get("error").and_then(|v| v.as_str()) {
-                    tx.send(OllamaEvent::GenerateToken(format!("\n[model error: {err}]\n"))).ok();
+                    tx.send(OllamaEvent::GenerateToken(format!(
+                        "\n[model error: {err}]\n"
+                    )))
+                    .ok();
                 } else if let Some(resp) = chunk.get("response").and_then(|v| v.as_str()) {
                     if !resp.is_empty() {
                         tx.send(OllamaEvent::GenerateToken(resp.to_string())).ok();
@@ -444,13 +512,26 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
 
         // Take the child back out to reap it — cancel_generate only kills
         // it, it never takes it, so this is always the one that owns cleanup.
-        let status = handle_thread.child.lock().unwrap().take().map(|mut c| c.wait());
-        let cancelled = handle_thread.cancelled.load(std::sync::atomic::Ordering::SeqCst);
-        let err_buf = stderr_handle.and_then(|h| h.join().ok()).unwrap_or_default();
-        let code = status.and_then(|s| s.ok()).and_then(|s| s.code()).unwrap_or(-1);
+        let status = handle_thread
+            .child
+            .lock()
+            .unwrap()
+            .take()
+            .map(|mut c| c.wait());
+        let cancelled = handle_thread
+            .cancelled
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let err_buf = stderr_handle
+            .and_then(|h| h.join().ok())
+            .unwrap_or_default();
+        let code = status
+            .and_then(|s| s.ok())
+            .and_then(|s| s.code())
+            .unwrap_or(-1);
 
         if cancelled {
-            tx.send(OllamaEvent::GenerateToken("\n[stopped]\n".to_string())).ok();
+            tx.send(OllamaEvent::GenerateToken("\n[stopped]\n".to_string()))
+                .ok();
         } else
         // Mirrors quickshell-d77/utumno's three failure messages exactly.
         if code != 0 || !got_any {
@@ -480,7 +561,9 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
 /// (same style as `curl`/`nvidia-smi` elsewhere here) sidesteps that gap
 /// instead of waiting on upstream clipboard support.
 fn copy_to_clipboard(text: &str) {
-    let Ok(mut child) = Command::new("wl-copy").stdin(Stdio::piped()).spawn() else { return };
+    let Ok(mut child) = Command::new("wl-copy").stdin(Stdio::piped()).spawn() else {
+        return;
+    };
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(text.as_bytes());
     }
@@ -513,47 +596,64 @@ fn main() -> Result<()> {
         .build()?;
 
     let event_loop = shell.event_loop_handle();
-    let (_channel_token, tx) = event_loop.add_channel::<OllamaEvent, _>(move |event, app_state| {
-        for surface in app_state.surfaces_by_name("Ollama") {
-            let instance = surface.component_instance();
-            match &event {
-                OllamaEvent::PullProgress(text) => {
-                    instance.set_property("info_text", Value::String(text.as_str().into())).ok();
-                }
-                OllamaEvent::PullFinished { message, ok, auto } => {
-                    instance.set_property("info_text", Value::String(message.as_str().into())).ok();
-                    if *auto {
-                        instance.set_property("auto_pull_active", Value::Bool(false)).ok();
+    let (_channel_token, tx) =
+        event_loop.add_channel::<OllamaEvent, _>(move |event, app_state| {
+            for surface in app_state.surfaces_by_name("Ollama") {
+                let instance = surface.component_instance();
+                match &event {
+                    OllamaEvent::PullProgress(text) => {
+                        instance
+                            .set_property("info_text", Value::String(text.as_str().into()))
+                            .ok();
                     }
-                    // A newly-installed model should show up in the
-                    // dropdown without waiting for the next 15s tick.
-                    if *ok {
-                        if let Some(names) = fetch_models() {
-                            instance.set_property("model_names", models_value(&names)).ok();
-                            instance.set_property("model_count", Value::Number(names.len() as f64)).ok();
+                    OllamaEvent::PullFinished { message, ok, auto } => {
+                        instance
+                            .set_property("info_text", Value::String(message.as_str().into()))
+                            .ok();
+                        if *auto {
                             instance
-                                .set_property("dropdown_height", Value::Number(dropdown_height_px(names.len())))
+                                .set_property("auto_pull_active", Value::Bool(false))
                                 .ok();
                         }
+                        // A newly-installed model should show up in the
+                        // dropdown without waiting for the next 15s tick.
+                        if *ok {
+                            if let Some(names) = fetch_models() {
+                                instance
+                                    .set_property("model_names", models_value(&names))
+                                    .ok();
+                                instance
+                                    .set_property("model_count", Value::Number(names.len() as f64))
+                                    .ok();
+                                instance
+                                    .set_property(
+                                        "dropdown_height",
+                                        Value::Number(dropdown_height_px(names.len())),
+                                    )
+                                    .ok();
+                            }
+                        }
+                    }
+                    OllamaEvent::GenerateToken(text) => {
+                        let history = match instance.get_property("history_text") {
+                            Ok(Value::String(s)) => s.to_string(),
+                            _ => String::new(),
+                        };
+                        instance
+                            .set_property("history_text", Value::String((history + text).into()))
+                            .ok();
+                    }
+                    OllamaEvent::GenerateFinished => {
+                        instance.set_property("generating", Value::Bool(false)).ok();
                     }
                 }
-                OllamaEvent::GenerateToken(text) => {
-                    let history = match instance.get_property("history_text") {
-                        Ok(Value::String(s)) => s.to_string(),
-                        _ => String::new(),
-                    };
-                    instance.set_property("history_text", Value::String((history + text).into())).ok();
-                }
-                OllamaEvent::GenerateFinished => {
-                    instance.set_property("generating", Value::Bool(false)).ok();
-                }
             }
-        }
-    })?;
+        })?;
 
     // Kicked off before the surface callbacks below so `auto_pull_handle`
     // can be moved into the "Stop" button's callback closure.
-    let auto_pull_handle = auto_pull.then(|| spawn_pull(tx.clone(), FALLBACK_MODEL.to_string(), true));
+    let auto_pull_handle =
+        auto_pull.then(|| spawn_pull(tx.clone(), FALLBACK_MODEL.to_string(), true));
 
     // Holds whichever generate request is currently streaming, so
     // `generate_cancel` (the response "Stop" button) can reach it — unlike
@@ -566,49 +666,79 @@ fn main() -> Result<()> {
     let initial_model_count = initial_models.len();
     shell.with_surface("Ollama", |comp| {
         comp.set_property("ollama_up", Value::Bool(initial_up)).ok();
-        comp.set_property("current_model", Value::String(initial_model.as_str().into())).ok();
-        comp.set_property("model_names", models_value(&initial_models)).ok();
-        comp.set_property("model_count", Value::Number(initial_model_count as f64)).ok();
-        comp.set_property("dropdown_height", Value::Number(dropdown_height_px(initial_model_count))).ok();
-        comp.set_property("hardware_hint", Value::String(hardware_hint.as_str().into())).ok();
-        comp.set_property("auto_pull_active", Value::Bool(auto_pull)).ok();
+        comp.set_property(
+            "current_model",
+            Value::String(initial_model.as_str().into()),
+        )
+        .ok();
+        comp.set_property("model_names", models_value(&initial_models))
+            .ok();
+        comp.set_property("model_count", Value::Number(initial_model_count as f64))
+            .ok();
+        comp.set_property(
+            "dropdown_height",
+            Value::Number(dropdown_height_px(initial_model_count)),
+        )
+        .ok();
+        comp.set_property(
+            "hardware_hint",
+            Value::String(hardware_hint.as_str().into()),
+        )
+        .ok();
+        comp.set_property("auto_pull_active", Value::Bool(auto_pull))
+            .ok();
 
         let weak = comp.as_weak();
         comp.set_callback("model_selected", move |args| {
-            let Some(Value::String(name)) = args.first() else { return Value::Void };
+            let Some(Value::String(name)) = args.first() else {
+                return Value::Void;
+            };
             let name = name.to_string();
             save_model(&name);
             if let Some(instance) = weak.upgrade() {
-                instance.set_property("current_model", Value::String(name.into())).ok();
-                instance.set_property("info_text", Value::String(String::new().into())).ok();
+                instance
+                    .set_property("current_model", Value::String(name.into()))
+                    .ok();
+                instance
+                    .set_property("info_text", Value::String(String::new().into()))
+                    .ok();
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let tx_install = tx.clone();
         comp.set_callback("install_submitted", move |args| {
-            let Some(Value::String(name)) = args.first() else { return Value::Void };
+            let Some(Value::String(name)) = args.first() else {
+                return Value::Void;
+            };
             let name = name.trim().to_string();
             if !name.is_empty() {
                 spawn_pull(tx_install.clone(), name, false);
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         comp.set_callback("auto_pull_cancel", move |_| {
             if let Some(handle) = &auto_pull_handle {
                 cancel_pull(handle);
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let weak = comp.as_weak();
         let tx_prompt = tx.clone();
         let current_generate_submit = current_generate.clone();
         comp.set_callback("prompt_submitted", move |args| {
-            let Some(Value::String(prompt)) = args.first() else { return Value::Void };
+            let Some(Value::String(prompt)) = args.first() else {
+                return Value::Void;
+            };
             let prompt = prompt.to_string();
-            let Some(instance) = weak.upgrade() else { return Value::Void };
+            let Some(instance) = weak.upgrade() else {
+                return Value::Void;
+            };
             let model = match instance.get_property("current_model") {
                 Ok(Value::String(s)) => s.to_string(),
                 _ => FALLBACK_MODEL.to_string(),
@@ -618,13 +748,17 @@ fn main() -> Result<()> {
                 _ => String::new(),
             };
             instance
-                .set_property("history_text", Value::String(format!("{history}\n> {prompt}\n").into()))
+                .set_property(
+                    "history_text",
+                    Value::String(format!("{history}\n> {prompt}\n").into()),
+                )
                 .ok();
             instance.set_property("generating", Value::Bool(true)).ok();
             let handle = spawn_generate(tx_prompt.clone(), model, prompt);
             *current_generate_submit.lock().unwrap() = Some(handle);
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         let current_generate_cancel = current_generate.clone();
         comp.set_callback("generate_cancel", move |_| {
@@ -632,30 +766,42 @@ fn main() -> Result<()> {
                 cancel_generate(handle);
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
 
         comp.set_callback("close_requested", move |_| {
             std::process::exit(0);
-        }).ok();
+        })
+        .ok();
 
         comp.set_callback("copy_requested", move |args| {
-            let (Some(Value::String(text)), Some(Value::Number(anchor)), Some(Value::Number(cursor))) =
-                (args.first(), args.get(1), args.get(2))
+            let (
+                Some(Value::String(text)),
+                Some(Value::Number(anchor)),
+                Some(Value::Number(cursor)),
+            ) = (args.first(), args.get(1), args.get(2))
             else {
                 return Value::Void;
             };
-            let (start, end) = ((*anchor as usize).min(*cursor as usize), (*anchor as usize).max(*cursor as usize));
+            let (start, end) = (
+                (*anchor as usize).min(*cursor as usize),
+                (*anchor as usize).max(*cursor as usize),
+            );
             if let Some(selected) = text.get(start..end) {
                 copy_to_clipboard(selected);
             }
             Value::Void
-        }).ok();
+        })
+        .ok();
     })?;
 
     event_loop.add_timer(STATUS_POLL_INTERVAL, move |_, app_state| {
         let up = ollama_running();
         for surface in app_state.surfaces_by_name("Ollama") {
-            surface.component_instance().set_property("ollama_up", Value::Bool(up)).ok();
+            surface
+                .component_instance()
+                .set_property("ollama_up", Value::Bool(up))
+                .ok();
         }
         TimeoutAction::ToDuration(STATUS_POLL_INTERVAL)
     })?;
@@ -666,9 +812,18 @@ fn main() -> Result<()> {
         if let Some(names) = fetch_models() {
             for surface in app_state.surfaces_by_name("Ollama") {
                 let instance = surface.component_instance();
-                instance.set_property("model_names", models_value(&names)).ok();
-                instance.set_property("model_count", Value::Number(names.len() as f64)).ok();
-                instance.set_property("dropdown_height", Value::Number(dropdown_height_px(names.len()))).ok();
+                instance
+                    .set_property("model_names", models_value(&names))
+                    .ok();
+                instance
+                    .set_property("model_count", Value::Number(names.len() as f64))
+                    .ok();
+                instance
+                    .set_property(
+                        "dropdown_height",
+                        Value::Number(dropdown_height_px(names.len())),
+                    )
+                    .ok();
             }
         }
         TimeoutAction::ToDuration(MODELS_POLL_INTERVAL)
