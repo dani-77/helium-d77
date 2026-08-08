@@ -72,7 +72,7 @@ jobs:
         run: |
           set -eu
           bindir="${{ github.workspace }}/staging/usr/bin"
-          for bin in helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop; do
+          for bin in helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama; do
             test -x "$bindir/$bin"
           done
           test -f "${{ github.workspace }}/staging/usr/share/helium-d77/d77-logo.svg"

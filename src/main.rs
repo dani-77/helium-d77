@@ -290,8 +290,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // session-menu binaries (spawn-on-demand, like rofi — see their doc
     // comments for why they're separate processes instead of toggled panels
     // inside this one).
-    shell.on_signal("Bar", "launcher_clicked", |_| spawn_sibling("helium-launcher"));
-    shell.on_signal("Bar", "session_clicked", |_| spawn_sibling("helium-session"));
+    shell.on_signal("Bar", "launcher_clicked", |_| {
+        spawn_sibling("helium-launcher")
+    });
+    shell.on_signal("Bar", "session_clicked", |_| {
+        spawn_sibling("helium-session")
+    });
     shell.on_signal("Bar", "ollama_clicked", |_| spawn_sibling("helium-ollama"));
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
     shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());

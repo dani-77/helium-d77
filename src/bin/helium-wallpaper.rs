@@ -149,7 +149,11 @@ enum WallpaperDaemon {
 /// always being hyprpaper.
 fn detect_wallpaper_daemon() -> WallpaperDaemon {
     let running = |name: &str| {
-        Command::new("pgrep").args(["-x", name]).stdout(Stdio::null()).status().is_ok_and(|s| s.success())
+        Command::new("pgrep")
+            .args(["-x", name])
+            .stdout(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
     };
     if running("hyprpaper") {
         WallpaperDaemon::Hyprpaper
@@ -168,12 +172,19 @@ fn detect_wallpaper_daemon() -> WallpaperDaemon {
 /// wallpaper right after starting, which races the `swww img` call made
 /// immediately after this returns and can silently clobber it.
 fn ensure_swww_daemon() {
-    let running =
-        Command::new("pgrep").args(["-x", "swww-daemon"]).stdout(Stdio::null()).status().is_ok_and(|s| s.success());
+    let running = Command::new("pgrep")
+        .args(["-x", "swww-daemon"])
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
     if running {
         return;
     }
-    let _ = Command::new("swww-daemon").arg("--no-cache").stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let _ = Command::new("swww-daemon")
+        .arg("--no-cache")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
     for _ in 0..20 {
         let up = Command::new("swww")
             .arg("query")
@@ -190,12 +201,18 @@ fn ensure_swww_daemon() {
 
 fn apply_wallpaper_swww(path: &str) -> bool {
     ensure_swww_daemon();
-    Command::new("swww").args(["img", path]).status().is_ok_and(|s| s.success())
+    Command::new("swww")
+        .args(["img", path])
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn apply_wallpaper_swaybg(path: &str) -> bool {
     let _ = Command::new("pkill").arg("swaybg").status();
-    Command::new("swaybg").args(["-i", path, "-m", "fill"]).spawn().is_ok()
+    Command::new("swaybg")
+        .args(["-i", path, "-m", "fill"])
+        .spawn()
+        .is_ok()
 }
 
 /// hyprpaper's own IPC preload/apply dance, factored out so it can be used
@@ -213,16 +230,24 @@ fn apply_wallpaper_hyprpaper(path: &str, retry_startup: bool) -> bool {
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(200));
         }
-        ok = Command::new("hyprctl").args(["hyprpaper", "wallpaper", &arg]).status().is_ok_and(|s| s.success());
+        ok = Command::new("hyprctl")
+            .args(["hyprpaper", "wallpaper", &arg])
+            .status()
+            .is_ok_and(|s| s.success());
         if ok {
             break;
         }
         // Not preloaded yet (or hyprpaper's socket isn't up yet during the
         // startup race) — preload and retry.
-        let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
+        let _ = Command::new("hyprctl")
+            .args(["hyprpaper", "preload", path])
+            .status();
     }
     if !ok {
-        ok = Command::new("hyprctl").args(["hyprpaper", "wallpaper", &arg]).status().is_ok_and(|s| s.success());
+        ok = Command::new("hyprctl")
+            .args(["hyprpaper", "wallpaper", &arg])
+            .status()
+            .is_ok_and(|s| s.success());
     }
     ok
 }
@@ -373,7 +398,9 @@ fn clear_wallpaper() {
                 let _ = Command::new("pkill").arg("swaybg").status();
             }
             WallpaperDaemon::Hyprpaper | WallpaperDaemon::None => {
-                let _ = Command::new("hyprctl").args(["hyprpaper", "unload", "all"]).status();
+                let _ = Command::new("hyprctl")
+                    .args(["hyprpaper", "unload", "all"])
+                    .status();
             }
         },
         Compositor::Sway => {
