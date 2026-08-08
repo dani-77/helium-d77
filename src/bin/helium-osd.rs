@@ -34,7 +34,12 @@ const OSD_HEIGHT: u32 = 64;
 // exclusive zone, so this has to be accounted for by hand.
 const TOP_MARGIN: i32 = 54;
 const SIDE_MARGIN: i32 = 16;
-const POLL_INTERVAL: Duration = Duration::from_millis(300);
+// Was 300ms: 3 subprocess spawns/cycle (amixer, brightnessctl,
+// powerprofilesctl — the latter alone ~500ms per fabric-d77's osd.py, i.e.
+// slower than this interval), forever in the background regardless of OSD
+// visibility. Nothing about "someone else changed it" detection needs
+// sub-second latency; 2s cuts that by ~85% for the same behavior.
+const POLL_INTERVAL: Duration = Duration::from_millis(2000);
 const VISIBLE_FOR: Duration = Duration::from_millis(2500);
 
 /// Reads Master volume via `amixer`, same control name and parsing as the

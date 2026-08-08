@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">helium-d77</title>
+  <desc id="desc">A luminous helium molecule mark with wind, lift and balloon motifs.</desc>
+  <defs>
+    <linearGradient id="ring" x1="182" y1="782" x2="842" y2="248" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#75D6F8"/>
+      <stop offset=".47" stop-color="#B69FDE"/>
+      <stop offset="1" stop-color="#F6CB6B"/>
+    </linearGradient>
+    <linearGradient id="core" x1="368" y1="388" x2="657" y2="671" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9C9FF"/>
+      <stop offset="1" stop-color="#7286CA"/>
+    </linearGradient>
+    <linearGradient id="lift" x1="512" y1="202" x2="512" y2="391" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C29CE6"/>
+      <stop offset="1" stop-color="#795A9D"/>
+    </linearGradient>
+    <linearGradient id="wind" x1="232" y1="636" x2="412" y2="795" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6FD7FA"/>
+      <stop offset="1" stop-color="#278BB8"/>
+    </linearGradient>
+    <linearGradient id="balloon" x1="644" y1="636" x2="828" y2="794" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD976"/>
+      <stop offset="1" stop-color="#C18B28"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="512" cy="512" r="432" fill="none" stroke="url(#ring)" stroke-width="18" stroke-linecap="round" stroke-dasharray="2460 255" transform="rotate(-43 512 512)" filter="url(#glow)"/>
+
+  <!-- Central helium cell -->
+  <path d="M512 364 660 450v172L512 708 364 622V450z" fill="#0D111B" stroke="url(#core)" stroke-width="38" stroke-linejoin="round"/>
+  <path d="M512 364 660 450l-28 16-120-70-120 70-28-16z" fill="#C5D3FF" opacity=".45"/>
+  <path d="m364 622 28-16 120 70v32z" fill="#7085C9" opacity=".68"/>
+  <path d="m660 622-28-16-120 70v32z" fill="#9EAEED" opacity=".55"/>
+  <text x="512" y="579" fill="#F7F7F5" font-family="Inter, DejaVu Sans, sans-serif" font-size="176" font-weight="500" text-anchor="middle">He</text>
+
+  <!-- Lift atom -->
+  <path d="m512 186 112 65v130l-112 65-112-65V251z" fill="url(#lift)"/>
+  <path d="m512 186 112 65-112 65-112-65z" fill="#D0B0ED" opacity=".45"/>
+  <path d="m400 381 112-65v130z" fill="#60437D" opacity=".55"/>
+  <path d="m624 381-112-65v130z" fill="#8C6AB1" opacity=".5"/>
+  <path d="M512 369V278m0 0-39 39m39-39 39 39" fill="none" stroke="#FFF9FF" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="137" r="12" fill="#C5A9E4"/>
+  <circle cx="512" cy="101" r="9" fill="#B69BDA"/>
+  <circle cx="512" cy="71" r="6" fill="#AE93D2"/>
+
+  <!-- Wind atom -->
+  <path d="m322 602 112 65v130l-112 65-112-65V667z" fill="url(#wind)"/>
+  <path d="m322 602 112 65-112 65-112-65z" fill="#8AE4FF" opacity=".38"/>
+  <path d="m210 797 112-65v130z" fill="#1E7197" opacity=".48"/>
+  <path d="m434 797-112-65v130z" fill="#319AC4" opacity=".42"/>
+  <path d="M257 690h104c22 0 22-31 0-31h-25m-79 62h127c23 0 23 33 0 33h-27m-100 31h72c22 0 22 31 0 31h-22" fill="none" stroke="#F4FCFF" stroke-width="14" stroke-linecap="round"/>
+
+  <!-- Balloon atom -->
+  <path d="m702 602 112 65v130l-112 65-112-65V667z" fill="url(#balloon)"/>
+  <path d="m702 602 112 65-112 65-112-65z" fill="#FFE497" opacity=".4"/>
+  <path d="m590 797 112-65v130z" fill="#9C6A1D" opacity=".45"/>
+  <path d="m814 797-112-65v130z" fill="#D49B32" opacity=".4"/>
+  <path d="M703 659c-35 0-58 28-58 65 0 45 39 79 58 94 19-15 58-49 58-94 0-37-23-65-58-65Z" fill="#FFFDF7"/>
+  <path d="M703 818v21m0 0c-10 9-13 19-8 29m8-29c10 9 13 19 8 29" fill="none" stroke="#FFFDF7" stroke-width="8" stroke-linecap="round"/>
+</svg>

@@ -109,6 +109,7 @@ export component Bar inherits Window {
     callback network_clicked();
     callback volume_clicked();
     callback battery_clicked();
+    callback ollama_clicked();
 
     Rectangle {
         background: #141414;
@@ -118,7 +119,7 @@ export component Bar inherits Window {
         // --- Workspaces (pinned left) ---------------------------------------
         Rectangle {
             x: 0;
-            width: 224px;
+            width: 256px;
             height: 100%;
 
             HorizontalLayout {
@@ -141,6 +142,22 @@ export component Bar inherits Window {
                     }
 
                     TouchArea { clicked => { launcher_clicked(); } }
+                }
+
+                Rectangle {
+                    width: 20px;
+
+                    Text {
+                        text: "AI";
+                        color: #76b900;
+                        font-size: 10px;
+                        font-weight: 700;
+                        font-family: "Space Grotesk";
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+
+                    TouchArea { clicked => { ollama_clicked(); } }
                 }
 
                 for ws in workspaces : WorkspacePill {

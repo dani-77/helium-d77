@@ -1,420 +1,166 @@
-# helium-shell
+<p align="center">
+  <img src="assets/logo-256.png" alt="helium-shell logo" width="128">
+</p>
 
-[![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust)](Cargo.toml)
-[![Wayland](https://img.shields.io/badge/wayland-layer--shell-blue?logo=wayland)](https://github.com/zepyxunderscore/helium-wsl)
-[![Hyprland](https://img.shields.io/badge/compositor-Hyprland-00b6b6)](https://hyprland.org)
-[![niri](https://img.shields.io/badge/compositor-niri-blueviolet)](https://github.com/YaLTeR/niri)
-[![Sway](https://img.shields.io/badge/compositor-Sway-88c0d0)](https://swaywm.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+<h1 align="center">helium-shell</h1>
 
-A personal Wayland status bar built on top of [Helium](https://github.com/zepyxunderscore/helium-wsl),
-which wraps `layer-shika` to give you a clean Rust + Slint API for layer-shell
-surfaces (compositor auto-detection, D-Bus services, timers, etc). Renders as
-a rounded, floating pill anchored to the top of the screen.
+<p align="center">
+  A clean, lightweight status bar and desktop toolkit for Wayland Linux desktops.
+</p>
 
-## What it shows
+<p align="center">
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/rust-2021-orange?logo=rust" alt="Rust"></a>
+  <a href="https://github.com/zepyxunderscore/helium-wsl"><img src="https://img.shields.io/badge/wayland-layer--shell-blue?logo=wayland" alt="Wayland"></a>
+  <a href="https://hyprland.org"><img src="https://img.shields.io/badge/compositor-Hyprland-00b6b6" alt="Hyprland"></a>
+  <a href="https://github.com/YaLTeR/niri"><img src="https://img.shields.io/badge/compositor-niri-blueviolet" alt="niri"></a>
+  <a href="https://swaywm.org"><img src="https://img.shields.io/badge/compositor-Sway-88c0d0" alt="Sway"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+</p>
 
-```
-[apps] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
-```
+helium-shell puts a slim, rounded status bar at the top of your screen, plus a
+handful of small companion tools for everyday desktop tasks — launching apps,
+picking a wallpaper, chatting with a local AI model, and locking/shutting down
+your machine. It's built for Hyprland, niri, and Sway, and aims to look and
+feel consistent across all three.
 
-- **Apps icon** (far left) — opens `helium-launcher`, a searchable app list
-  (see Launcher below).
-- **Workspaces** — one pill per *actual* live workspace (a `[WorkspaceItem]`
-  model built from the compositor's own workspace list, not a hardcoded
-  count), active one highlighted green, a small dot marks
-  occupied-but-inactive ones. Click a pill to switch to that workspace —
-  works on Hyprland, Niri, and Sway (see `switch_workspace()` in
-  `src/main.rs`). State is polled every second, not pushed via compositor
-  events (see Limitations for why). The bar reserves real screen space
-  (exclusive zone), so windows don't render underneath it.
-- **Weather + date/time** — geometrically centered on the bar as one unit
-  (not just centered in whatever space is left between the other two
-  groups). Weather is condition + temperature only (e.g. "Clear  +20°C"),
-  from wttr.in, checked every 15 minutes. Clock updates every second.
-- **Network** — Wi-Fi SSID + signal strength (`SSID  72%`), "wired" on
-  Ethernet, "offline" otherwise. Polled every 5s via NetworkManager D-Bus.
-  Click it to open `nmtui` in a floating terminal (see Requirements for
-  which terminals it tries).
-- **CPU** — utilization percent since the last tick, from `/proc/stat`.
-- **RAM** — used percent, from `/proc/meminfo`.
-- **Battery** — charge percent from sysfs; icon switches to a bolt while
-  charging. Click it to cycle the active `power-profiles-daemon` profile
-  (performance → balanced → power-saver → …) via `powerprofilesctl`.
-- **Volume** — ALSA `Master` level and mute state via `amixer`. Click it to
-  toggle mute (`amixer set Master toggle`).
-- **Power icon** (far right) — opens `helium-session`, a click-and-keyboard
-  session menu (see Session menu below).
+## What you get
 
-Volume and power-profile changes (from anywhere, not just the bar's own
-clicks) also flash a small OSD in the top-right corner — see OSD below.
+- **A status bar** at the top of the screen showing your workspaces, the
+  weather, the date and time, your network status, CPU/RAM usage, battery
+  level, and volume — all at a glance.
+- **An app launcher** — press a key (or click the bar) to search and open any
+  installed application.
+- **A wallpaper picker** — browse your wallpaper folder as a grid of
+  thumbnails and click one to apply it.
+- **An AI chat popup** for a locally running [Ollama](https://ollama.com)
+  model — ask it something without opening a terminal.
+- **A session menu** — lock, suspend, reboot, shut down, or log out from one
+  place.
+- **A screen locker** with a clock and password field (currently only
+  recommended on Hyprland/Sway — see [Known limitations](#known-limitations)).
+- **An on-screen display** that briefly pops up when you change the volume or
+  power profile.
 
-Every section has a Nerd Font icon (apps/workspaces/weather/clock/network/cpu/
-ram/battery/volume/power) — see Requirements.
-
-## Launcher (`helium-launcher`)
-
-A rofi/wofi-style app launcher, spawned on demand rather than a panel
-toggled inside the bar. Lists every non-hidden `.desktop` entry from
-`/usr/share/applications` and `~/.local/share/applications` as a scrollable
-list, each row's icon resolved from the entry's `Icon=` (a best-effort
-search across every installed icon theme plus `/usr/share/pixmaps`, not a
-full XDG icon-theme-spec implementation — entries whose icon can't be found
-are shown with no icon rather than a broken image).
-
-A search box grabs keyboard focus as soon as the launcher opens (the
-surface requests `KeyboardInteractivity::Exclusive`); typing filters the
-list live, case-insensitive substring match on the app name. Up/Down move
-the selection among the currently-visible rows, Enter launches whichever
-row is selected, Escape closes without launching anything — all real
-Wayland keyboard input via Slint's `TextInput`, the same mechanism the
-lock screen's password field uses (see Limitations' old note on this,
-corrected). Clicking a row still works too and launches it directly
-(wrapped in a detected terminal if the entry has `Terminal=true`).
-
-Opened by clicking the apps icon in the bar, or bind it directly to a key in
-your Hyprland config:
+## Screenshot tour
 
 ```
-bind = SUPER, D, exec, /usr/bin/helium-launcher
+[apps] [AI] [ 1 2 3 4 5 ]        Clear +20°C · 14:32        Wi-Fi  92%  |  CPU 12%  |  RAM 41%  |  🔋 87%  |  🔊 60%  [⏻]
 ```
 
-## Session menu (`helium-session`)
-
-A Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the action set
-and commands from a quickshell "session menu" widget: `loginctl <action>`
-with a `systemctl <action>` fallback for suspend/reboot/poweroff,
-`loginctl terminate-session "$XDG_SESSION_ID"` for logout (falls back to
-`self` if that variable isn't set). Lock runs `hyprlock` if it's installed,
-falling back to `loginctl lock-session` otherwise.
-
-Grabs keyboard focus as soon as it opens. Left/Right move the selection
-across the row (Cancel included), Enter activates whichever button is
-selected, Escape cancels — via a `FocusScope` around the button row (no
-text field needed here, unlike the launcher, so no `TextInput`). Clicking a
-button still works too. Opened by clicking the power icon in the bar, or
-bind it to a key the same way as the launcher above.
-
-## Wallpaper picker (`helium-wallpaper`)
-
-A grid-style wallpaper picker, mirroring quickshell-d77's own Wallpaper.qml.
-Scans `$HOME/Wallpaper` (override with `HELIUM_WALLPAPER_DIR`) for
-`png`/`jpg`/`jpeg`/`webp`/`bmp` files and shows them as a scrollable grid of
-thumbnails. Clicking one applies it immediately by shelling out to whichever
-backend the running compositor actually has — `hyprctl hyprpaper` on
-Hyprland, `swaymsg output ... bg` on Sway, or a `swww`/`swaybg`/`feh`
-fallback chain everywhere else (niri included, since it has no wallpaper
-daemon of its own) — the same compositor-detection precedence
-`switch_workspace()` in `src/main.rs` uses. The active thumbnail gets a
-green border; "Clear" removes the wallpaper and un-highlights it.
-
-Unlike the launcher/session menu, clicking a thumbnail doesn't close the
-window — it stays open so you can keep previewing, matching
-quickshell-d77's own behavior. Only Escape closes it. There's no bar icon
-for it (quickshell-d77 doesn't have one either); bind it directly to a key:
-
-```
-bind = SUPER, W, exec, /usr/bin/helium-wallpaper
-```
-
-The chosen path is persisted to `~/.cache/helium/wallpaper/current` and
-restored on the next login by running the binary with `--startup` from your
-compositor's autostart, *after* the wallpaper daemon itself has started
-(e.g. after `exec-once = hyprpaper` on Hyprland, or after `swww-daemon`/
-`swaybg` elsewhere):
-
-```
-# Hyprland (hyprland.conf)
-exec-once = hyprpaper
-exec-once = /usr/bin/helium-wallpaper --startup
-
-# niri (config.kdl), after swww-daemon or similar
-spawn-at-startup "/usr/bin/helium-wallpaper" "--startup"
-```
-
-Because this always reapplies *after* the daemon has already started
-(unlike quickshell-d77's Hyprland-specific `apply-saved-wallpaper.sh`, which
-rewrites `hyprpaper.conf` *before* hyprpaper starts), a brief flash of
-hyprpaper's own default background is possible on Hyprland specifically
-before `--startup` catches up.
-
-## Backdrop (`helium-backdrop`)
-
-A decorative full-screen background — solid fill plus a couple of green
-accent panels — shown only while no wallpaper is set (before you've picked
-one via `helium-wallpaper`, or after clearing one), mirroring
-quickshell-d77/fabric-d77's own Backdrop. Sits on the Wayland `Bottom`
-layer, one step above where hyprpaper/swaybg/swww draw the real wallpaper
-on `Background`, and polls the same `~/.cache/helium/wallpaper/current`
-state file `helium-wallpaper` writes (every 2s) to hide itself the moment a
-wallpaper gets applied — no restart needed.
-
-One surface per connected monitor comes for free from `layer-shika`'s
-default output policy (`AllOutputs`), the same effect quickshell-d77 gets
-via `Variants { model: Quickshell.screens }`. It's sized `0x0` with all
-four edges anchored, which per the wlr-layer-shell protocol means "let the
-compositor assign the size" — the standard way background/wallpaper-daemon
-surfaces size themselves, so unlike the bar there's no need to query each
-monitor's resolution by hand.
-
-**Caveat**: `layer-shika` has no input-region/click-through API, so unlike
-quickshell-d77's Backdrop.qml (which explicitly sets an empty `mask`), this
-surface does claim pointer input over the area it covers. In a tiling
-compositor with no desktop-icon manager that's the same area hyprpaper/
-swaybg/swww already claim whenever a wallpaper *is* set, so it shouldn't
-change anything in practice — but it hasn't been confirmed against every
-compositor/setup, so flag it if you hit a case where it matters.
-
-Not autostarted by helium-shell itself — same as `helium-osd`, add it to
-your compositor's autostart:
-
-```
-# Hyprland (hyprland.conf)
-exec-once = /usr/bin/helium-backdrop
-
-# niri (config.kdl)
-spawn-at-startup "/usr/bin/helium-backdrop"
-```
-
-## Locker (`helium-locker`)
-
-A native screen locker, unlike the `hyprlock`/`loginctl` shell-outs the
-session menu currently uses: it locks the session itself via the
-`ext-session-lock-v1` Wayland protocol, so the compositor enforces the lock
-rather than a window merely being drawn on top. Shows a clock, date, and
-password field (`ui/lock.slint`), verified against PAM.
-
-Built directly on `layer-shika`'s `Shell` (not helium-wsl's `Helium` wrapper,
-which doesn't expose session-lock yet — see the comment in `Cargo.toml`).
-
-**Not currently wired into the session menu's Lock action** — under niri,
-`layer-shika`'s session-lock surface (which uses `wp_fractional_scale` +
-`wp_viewporter`) gets keyboard/pointer focus and then niri immediately
-cancels the lock via `ext_session_lock_v1.finished()` about 30ms later
-(confirmed with a `WAYLAND_DEBUG=1` trace — not a bug in this repo's own
-code). The binary and PAM setup below are otherwise complete; re-enable the
-`lock_command()` preference in `src/bin/helium-session.rs` once that's fixed
-upstream in `layer-shika`.
-
-Requires a PAM service file at `/etc/pam.d/helium-locker` (source in
-`pam.d/helium-locker` in this repo). Without it, PAM fails closed: the lock
-screen comes up but no password will ever be accepted.
-
-**Not installed by `make install`** while the niri incompatibility above is
-unresolved (see the Makefile's own comment). Build and install it by hand if
-your compositor doesn't hit that bug:
-
-```sh
-cargo build --release --bin helium-locker
-sudo install -Dm755 target/release/helium-locker /usr/bin/helium-locker
-sudo install -Dm644 pam.d/helium-locker /etc/pam.d/helium-locker
-```
-
-Bind it directly to a key in your compositor config if you want a dedicated
-lock shortcut:
-
-```
-bind = SUPER, L, exec, /usr/bin/helium-locker
-```
-
-## OSD (`helium-osd`)
-
-A small overlay (top-right corner, below the bar) that briefly appears when
-volume/mute, screen brightness, or the active power-profiles-daemon profile
-changes, mirroring the OSD in quickshell-d77/fabric-d77. It polls
-`amixer`/`brightnessctl`/`powerprofilesctl` directly on its own ~300ms timer
-rather than reacting to the bar's click handlers, so it also reacts to
-changes made outside the bar (hardware media keys,
-`brightnessctl`/`powerprofilesctl` run from a terminal, etc). Auto-hides
-after 2.5s.
-
-A separate, always-running process (not spawned on demand by the bar): it
-sits at a 1x1 surface size when idle and resizes itself up only while
-showing. **You need to autostart it yourself** alongside `helium-shell` —
-the bar itself never launches it. For a quick one-off test without touching
-your compositor config, just run it directly from a terminal (e.g.
-`target/release/helium-osd &`) and then change the volume or click the
-battery chip. For a real autostart entry:
-
-```
-# Hyprland (hyprland.conf)
-exec-once = /usr/bin/helium-osd
-
-# niri (config.kdl)
-spawn-at-startup "/usr/bin/helium-osd"
-```
-
-Built directly on `layer-shika`'s `Shell`, like `helium-locker` — see its
-own doc comment for why (per-surface resize and direct `AppState` property
-access aren't exposed by helium-wsl's `Helium` wrapper).
-
-## Requirements
-
-- A running Wayland session with `$WAYLAND_DISPLAY` set.
-- Hyprland, niri, or Sway (for workspace info and click-to-switch — the bar
-  still runs without any of them, just without that section updating).
-  `helium_wsl::compositors::detect()` only knows Hyprland/niri, so Sway's
-  monitor width, workspace list, and click-to-switch are all implemented
-  directly in `src/main.rs` (`sway_monitor_width()`, `sway_workspaces()`,
-  the `SWAYSOCK` branch of `switch_workspace()`) over its native i3-ipc
-  socket instead.
-- NetworkManager on D-Bus for the network segment, plus `nmtui` (part of
-  NetworkManager) and one of `foot`/`kitty`/`alacritty`/`wezterm`/`xterm` for
-  the network chip's click-to-open behavior.
-- `amixer` (alsa-utils) for the volume segment and its click-to-mute.
-- `brightnessctl` for the OSD's brightness display (no bar segment reads it
-  yet — the OSD just reacts to whatever changed brightness, e.g. hardware
-  keys or `brightnessctl` itself).
-- `power-profiles-daemon` (`powerprofilesctl`) for the battery chip's
-  click-to-cycle-profile behavior and the OSD's profile display — the
-  segment/chip itself still works without it, that click just becomes a
-  no-op.
-- `curl` and internet access for the weather segment (queries wttr.in — no
-  API key needed).
-- A battery under `/sys/class/power_supply/*` for the battery segment (a
-  desktop with none just won't get a value there).
-- Rust (edition 2021) and the system deps `layer-shika`/Slint need at build
-  time for Wayland, fonts, and PAM: on Void these are `wayland-devel`,
-  `libxkbcommon-devel`, `fontconfig-devel`, `freetype-devel`, and
-  `pam-devel` (needed to build `helium-locker`'s PAM auth even though it
-  isn't installed by `make install` right now — see Locker below; `pam-libs`,
-  already pulled in by anything else using PAM on your system, covers it at
-  runtime).
-- For `helium-osd`/`helium-backdrop`: same Wayland/layer-shell support the
-  bar itself needs — nothing extra.
-- For `helium-wallpaper`/`helium-backdrop`: at least one of `hyprctl`
-  (Hyprland, via hyprpaper), `swaymsg` (Sway), or `swww`/`swaybg`/`feh`
-  (everywhere else, niri included) actually installed and running, or
-  clicking a thumbnail won't visibly do anything. Neither binary requires
-  a specific one at build time — the compositor/backend is only detected
-  at runtime.
-- For `helium-locker` (optional, build-and-install-by-hand only — see
-  Locker below): a compositor with `ext-session-lock-v1` support that
-  doesn't hit the niri incompatibility described there, and the PAM service
-  file described under Locker.
-- A Nerd Font installed as **"Symbols Nerd Font"** (or edit the icon
-  codepoints in `ui/bar.slint` to match a different one you have — see
-  `fc-list | grep -i nerd`). Regular text uses "Space Grotesk" / "Space Mono".
+From left to right: app launcher, AI chat, your workspaces, the weather and
+clock centered on the bar, then network, CPU, RAM, battery, and volume — with
+the power/session menu on the far right.
 
 ## Installing
 
-```sh
-sudo make install     # builds --release and installs into /usr/bin
-sudo make uninstall
+1. Make sure you have Rust and a few system libraries installed — see
+   [Requirements](#requirements) below.
+2. Build and install everything with:
+
+   ```sh
+   sudo make install
+   ```
+
+   This installs the bar and its companion tools to `/usr/bin`. To remove
+   everything later:
+
+   ```sh
+   sudo make uninstall
+   ```
+
+3. Tell your compositor to start the bar automatically. Add this to your
+   config:
+
+   **Hyprland** (`hyprland.conf`):
+   ```
+   exec-once = /usr/bin/helium-shell
+   ```
+
+   **niri** (`config.kdl`):
+   ```
+   spawn-at-startup "/usr/bin/helium-shell"
+   ```
+
+   **Sway** (`config`):
+   ```
+   exec /usr/bin/helium-shell
+   ```
+
+That's it — restart your compositor session (or just run the command once
+yourself) and the bar should appear.
+
+### Optional pieces
+
+A couple of the companion tools are handy to start automatically as well, and
+a couple more are opened on demand — you don't need to do anything extra for
+those:
+
+| Tool | Starts... |
+|---|---|
+| `helium-shell` (the bar) | automatically, add to your compositor config (above) |
+| `helium-osd` (volume/brightness popup) | automatically — add its own `exec-once` line, same as the bar |
+| `helium-backdrop` (background shown when no wallpaper is set) | automatically — same as above, optional |
+| `helium-launcher`, `helium-wallpaper`, `helium-ollama`, `helium-session` | on demand — opened by clicking their icon in the bar, or a keybind (see [Keyboard shortcuts](#keyboard-shortcuts)) |
+
+## Keyboard shortcuts
+
+None of these are bound automatically — add the ones you want to your
+compositor config. Example for Hyprland:
+
+```
+bind = SUPER, D, exec, /usr/bin/helium-launcher   # app launcher
+bind = SUPER, A, exec, /usr/bin/helium-ollama     # AI chat
+bind = SUPER, W, exec, /usr/bin/helium-wallpaper  # wallpaper picker
 ```
 
-- `PREFIX` (default `/usr`) controls where binaries go (`$(PREFIX)/bin`).
-- `DESTDIR` is for staged/packaging builds, e.g.
-  `make install DESTDIR=/tmp/pkg` — empty for a normal install onto the
-  running system.
-- Needs `make` and everything listed under Requirements above (cargo, the
-  `-devel` packages, since `install` always builds first).
-- Installs `helium-shell`, `helium-launcher`, `helium-session`,
-  `helium-osd`, `helium-wallpaper`, and `helium-backdrop` to
-  `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately left out — see
-  Locker above for installing it by hand.
-- `helium-shell` needs autostarting by your compositor as usual;
-  `helium-osd` and `helium-backdrop` additionally need their own autostart
-  entries (see their sections above) — the bar doesn't launch either for
-  you. `helium-wallpaper` is spawn-on-demand via a keybind, same as
-  `helium-launcher`/`helium-session`.
+Once a popup is open:
+- **Type** to search (launcher).
+- **Arrow keys** to move the selection.
+- **Enter** to confirm, **Escape** to close.
 
-## Packaging
+## Requirements
 
-Draft packaging templates live under `packaging/`: `packaging/void/template`
-(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same six binaries
-`make install` does (`helium-locker` stays out for the reason in Locker
-above) and need their checksum/`sha256sums` filled in once a version is
-actually tagged upstream.
+- A Wayland session on **Hyprland**, **niri**, or **Sway** (the bar runs
+  elsewhere too, just without workspace switching).
+- A [Nerd Font](https://www.nerdfonts.com) installed — specifically
+  **"Symbols Nerd Font"** — so the bar's icons render correctly.
+- `amixer` (comes with `alsa-utils`) for volume control.
+- `NetworkManager` and a terminal app (`foot`, `kitty`, `alacritty`,
+  `wezterm`, or `xterm`) for the network status/click-to-connect.
+- `curl` and an internet connection for the weather segment.
+- `brightnessctl` and `power-profiles-daemon`, if you want the on-screen
+  display to show brightness and power-profile changes.
+- A [wallpaper backend](#) already running if you want the wallpaper picker
+  to actually apply one — `hyprpaper` (Hyprland), or `swww`/`swaybg`/`feh`
+  elsewhere.
+- For the AI chat popup: [Ollama](https://ollama.com) installed and running
+  locally.
 
-## Running
-
-```sh
-cargo run --release
-```
-
-`ui/bar.slint` is embedded into the binary at compile time (`include_str!`),
-so the built binary is self-contained — it can be installed anywhere (e.g.
-`/usr/bin/helium-shell`) and run from any working directory, autostart
-config included.
+Don't worry if you're missing one of these — the bar still runs, that one
+feature just won't do anything until the dependency is installed.
 
 ## Customizing
 
-- **Monitor width**: derived automatically at startup from
-  `compositor.monitors()` (see `primary_monitor_width()` in `src/main.rs`),
-  so there's nothing to hand-edit per machine. The margin (10px on three
-  sides) is a constant (`MARGIN`) in the same file if you want it different.
-- **Colors/fonts**: everything lives in `ui/bar.slint`; the bar reuses the
-  dark/green palette from Helium's own examples (`#0d0d0d` / `#141414`
-  background, `#76b900` accent). `helium-wallpaper`/`helium-backdrop` reuse
-  the same palette in their own generated Slint source (see the constants
-  and `build_slint_source()`/`SOURCE` in their respective `src/bin/` files).
-- **Wallpaper directory**: `helium-wallpaper` scans `$HOME/Wallpaper` by
-  default — set `HELIUM_WALLPAPER_DIR` to point it elsewhere instead of
-  moving/symlinking your wallpapers to match.
-- **Sections**: add more properties to the `Bar` component and set them from
-  `src/main.rs` the same way the existing ones are — via `shell.set(...)` /
-  `ctx.set(...)`.
+- **Colors and fonts** live in `ui/bar.slint` if you want to tweak the look.
+- **Wallpaper folder**: the picker looks in `~/Wallpaper` by default — set
+  the `HELIUM_WALLPAPER_DIR` environment variable to point it somewhere else.
+- The bar's width adjusts itself automatically to your screen, so there's
+  nothing to configure per machine.
 
-## Limitations (inherited from Helium 0.2.3, worked around here)
+## Known limitations
 
-- **Workspace state is polled, not pushed.** helium-wsl's Hyprland backend
-  resolves `CompositorEvent::WorkspaceChanged` by re-querying `j/workspaces` +
-  `j/activeworkspace` over two separate synchronous IPC calls instead of using
-  the workspace id already embedded in the raw `workspace>>N` event line.
-  Under fast workspace churn those two snapshots can disagree, and
-  `poll_event()` silently drops the event — the pills would desync and never
-  recover. `src/main.rs` sidesteps this by polling `compositor.workspaces()`
-  on a 1s timer instead of trusting the push event.
-- **`helium_wsl::services::network::status()` is broken upstream.**
-  `GetDevices` returns D-Bus signature `ao` (plain object paths); the crate
-  deserializes it as `Vec<OwnedValue>` (expects `av`), so the call always
-  errors. `src/network.rs` reimplements the NetworkManager queries directly
-  with the correct type.
-- **`helium_wsl::compositors::niri::Niri::monitors()` is broken upstream.**
-  It deserializes each output's `current_mode` as an inline `{width,
-  height}` object, but niri actually reports it as an integer index into
-  the output's own `modes` array — the type mismatch makes
-  `serde_json::from_value` fail silently for every real niri output, so
-  `monitors()` always returns an empty `Vec`. `primary_monitor_width()` in
-  `src/main.rs` used to fall through to `FALLBACK_MONITOR_WIDTH` (1366) on
-  every niri machine as a result, rendering the bar visibly too narrow
-  regardless of actual screen size. `niri_monitor_width()` now queries
-  niri's `Outputs` IPC directly and reads `logical.width` instead (already
-  scale-adjusted, unlike resolving the mode index).
-- **Bluetooth is not wired into this bar** (dropped in favor of CPU/RAM/
-  battery/volume). `helium_wsl::services::bluetooth` still works standalone if
-  you want to add it back — see `docs/services.md` in the helium-wsl repo.
-- **Workspace click-to-switch talks to the compositor directly**, since
-  Helium's `Compositor` trait has no dispatch/write API — `switch_workspace()`
-  in `src/main.rs` branches on `$HYPRLAND_INSTANCE_SIGNATURE` /
-  `$NIRI_SOCKET` / `$SWAYSOCK` and speaks each compositor's own IPC. For
-  Hyprland it tries the standard textual IPC (`dispatch workspace N`) first,
-  falling back to `dispatch hl.dsp.focus({ workspace = N })` for Lua-config
-  builds (e.g. "hyprland-lua") that route dispatchers through Lua instead of
-  the classic `<dispatcher> <args>` protocol. For niri it sends a
-  `FocusWorkspace` action over `$NIRI_SOCKET`, using the workspace's own
-  per-output `idx` as helium-wsl reports it — not necessarily the same
-  numbering niri's own UI shows. For Sway, since `helium_wsl` has no Sway
-  backend at all, both the listing (`sway_workspaces()`) and the switch
-  (`workspace number N` over i3-ipc) are implemented from scratch in
-  `src/main.rs` rather than routed through `helium_wsl::compositors`;
-  `sway_workspaces()` reads each workspace's `representation` field
-  (`null` exactly when it has no windows, per Sway's own IPC docs) for the
-  `occupied` dot instead of a second `GET_TREE` call.
-- Audio (beyond ALSA volume via `amixer`), power, and power-profiles services
-  in helium-wsl itself are stubbed upstream and aren't used here.
-- **`helium_wsl::Helium::on_key` is still a stub** (`// todo: waiting on
-  layer-shika keyboard input API`) — it's a convenience callback for
-  binding global shortcuts, unrelated to normal widget-level keyboard
-  input. That's a real gap, but it doesn't mean keyboard input is missing
-  wholesale: Slint's own `TextInput`/`FocusScope` receive real
-  `wl_keyboard` events (via `layer-shika-adapters`, dispatched as
-  `WindowEvent::KeyPressed`) on any layer-shell surface with keyboard
-  focus, not just session-lock surfaces. `helium-launcher`'s search box
-  and `ui/lock.slint`'s password field both rely on this directly. Building
-  a binary on raw `layer_shika::Shell` instead of the `Helium` wrapper is
-  what it takes to wire this up, since pushing filter/selection state back
-  onto the surface from inside a Slint callback needs
-  `ComponentInstance::as_weak()`, which the wrapper's `on_signal` doesn't
-  expose access to.
+- The screen locker (`helium-locker`) doesn't currently work on **niri** —
+  the lock screen appears but niri cancels it almost immediately. It works
+  fine on Hyprland and Sway. It's also not installed by `make install` yet;
+  see the technical docs for how to build it by hand.
+- Bluetooth controls aren't included in the bar.
+
+## Want more detail?
+
+This README covers everyday use. For build internals, architecture notes,
+and the reasoning behind specific design choices, see
+[`doc/TECHNICAL.md`](doc/TECHNICAL.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).

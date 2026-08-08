@@ -6,7 +6,10 @@
 //! keybind too). Scans a local directory for images, shows them in a grid,
 //! and applies a click by shelling out to whichever wallpaper backend the
 //! running compositor actually has (see `apply_wallpaper()`), the same
-//! compositor-detection approach `set-wallpaper.sh` uses there.
+//! compositor-detection approach `set-wallpaper.sh` uses there. On Hyprland
+//! specifically, which itself draws no wallpaper, the actual daemon in use
+//! (hyprpaper/swww/swaybg) is detected via `pgrep` rather than assumed to be
+//! hyprpaper — mirroring `set-wallpaper.sh`'s `detect_wallpaper_daemon()`.
 //!
 //! Unlike the launcher/session menu, clicking a thumbnail does not close the
 //! window — the grid stays open so you can keep previewing wallpapers,
@@ -132,6 +135,98 @@ enum Compositor {
     Generic,
 }
 
+enum WallpaperDaemon {
+    Hyprpaper,
+    Swww,
+    Swaybg,
+    None,
+}
+
+/// Detects which wallpaper daemon is actually running via `pgrep`, mirroring
+/// `set-wallpaper.sh`'s `detect_wallpaper_daemon()` in quickshell-d77. Used
+/// under `Compositor::Hyprland`: Hyprland itself draws no wallpaper, so which
+/// tool owns the job (hyprpaper/swww/swaybg) varies per setup instead of
+/// always being hyprpaper.
+fn detect_wallpaper_daemon() -> WallpaperDaemon {
+    let running = |name: &str| {
+        Command::new("pgrep").args(["-x", name]).stdout(Stdio::null()).status().is_ok_and(|s| s.success())
+    };
+    if running("hyprpaper") {
+        WallpaperDaemon::Hyprpaper
+    } else if running("swww-daemon") {
+        WallpaperDaemon::Swww
+    } else if running("swaybg") {
+        WallpaperDaemon::Swaybg
+    } else {
+        WallpaperDaemon::None
+    }
+}
+
+/// Starts `swww-daemon` if it isn't already running and waits (up to 2s) for
+/// its socket, mirroring `set-wallpaper.sh`'s `ensure_swww_daemon()`.
+/// `--no-cache`: swww-daemon otherwise restores each output's last cached
+/// wallpaper right after starting, which races the `swww img` call made
+/// immediately after this returns and can silently clobber it.
+fn ensure_swww_daemon() {
+    let running =
+        Command::new("pgrep").args(["-x", "swww-daemon"]).stdout(Stdio::null()).status().is_ok_and(|s| s.success());
+    if running {
+        return;
+    }
+    let _ = Command::new("swww-daemon").arg("--no-cache").stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    for _ in 0..20 {
+        let up = Command::new("swww")
+            .arg("query")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if up {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn apply_wallpaper_swww(path: &str) -> bool {
+    ensure_swww_daemon();
+    Command::new("swww").args(["img", path]).status().is_ok_and(|s| s.success())
+}
+
+fn apply_wallpaper_swaybg(path: &str) -> bool {
+    let _ = Command::new("pkill").arg("swaybg").status();
+    Command::new("swaybg").args(["-i", path, "-m", "fill"]).spawn().is_ok()
+}
+
+/// hyprpaper's own IPC preload/apply dance, factored out so it can be used
+/// both as the `Compositor::Hyprland` + `WallpaperDaemon::Hyprpaper` path and
+/// as the fallback when no daemon is detected running yet and none of
+/// swww/swaybg are installed either.
+fn apply_wallpaper_hyprpaper(path: &str, retry_startup: bool) -> bool {
+    if retry_startup {
+        wait_for_hyprpaper_socket(Duration::from_secs(20));
+    }
+    let arg = format!(",{path}");
+    let attempts = if retry_startup { 25 } else { 1 };
+    let mut ok = false;
+    for attempt in 0..attempts {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        ok = Command::new("hyprctl").args(["hyprpaper", "wallpaper", &arg]).status().is_ok_and(|s| s.success());
+        if ok {
+            break;
+        }
+        // Not preloaded yet (or hyprpaper's socket isn't up yet during the
+        // startup race) — preload and retry.
+        let _ = Command::new("hyprctl").args(["hyprpaper", "preload", path]).status();
+    }
+    if !ok {
+        ok = Command::new("hyprctl").args(["hyprpaper", "wallpaper", &arg]).status().is_ok_and(|s| s.success());
+    }
+    ok
+}
+
 /// Same three-way split as `set-wallpaper.sh`'s `detect_compositor()`: niri
 /// isn't singled out there either (it has no built-in wallpaper daemon of
 /// its own, unlike Hyprland's hyprpaper), so it falls through to the
@@ -217,56 +312,37 @@ fn wait_for_hyprpaper_socket(timeout: Duration) {
 /// all).
 fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
     let applied = match detect_compositor() {
-        Compositor::Hyprland => {
-            if retry_startup {
-                wait_for_hyprpaper_socket(Duration::from_secs(20));
-            }
-            // Empty monitor name + comma applies to every monitor (see
-            // set-wallpaper.sh's own comment on this hyprctl syntax).
-            let arg = format!(",{path}");
-            let attempts = if retry_startup { 25 } else { 1 };
-            let mut ok = false;
-            for attempt in 0..attempts {
-                if attempt > 0 {
-                    std::thread::sleep(Duration::from_millis(200));
+        // Empty monitor name + comma applies to every monitor (see
+        // set-wallpaper.sh's own comment on this hyprctl syntax) — used by
+        // apply_wallpaper_hyprpaper() below.
+        Compositor::Hyprland => match detect_wallpaper_daemon() {
+            WallpaperDaemon::Hyprpaper => apply_wallpaper_hyprpaper(path, retry_startup),
+            WallpaperDaemon::Swww => apply_wallpaper_swww(path),
+            WallpaperDaemon::Swaybg => apply_wallpaper_swaybg(path),
+            WallpaperDaemon::None => {
+                // No wallpaper daemon detected running yet — fall back to
+                // whichever tool is installed, preferring swww since it
+                // supports live IPC switching (swaybg needs a restart per
+                // change, hyprpaper needs preload/wallpaper IPC), same order
+                // set-wallpaper.sh falls back in.
+                if command_exists("swww") {
+                    apply_wallpaper_swww(path)
+                } else if command_exists("swaybg") {
+                    apply_wallpaper_swaybg(path)
+                } else {
+                    apply_wallpaper_hyprpaper(path, retry_startup)
                 }
-                ok = Command::new("hyprctl")
-                    .args(["hyprpaper", "wallpaper", &arg])
-                    .status()
-                    .is_ok_and(|s| s.success());
-                if ok {
-                    break;
-                }
-                // Not preloaded yet (or hyprpaper's socket isn't up yet
-                // during the startup race above) — preload and retry.
-                let _ = Command::new("hyprctl")
-                    .args(["hyprpaper", "preload", path])
-                    .status();
             }
-            if !ok {
-                ok = Command::new("hyprctl")
-                    .args(["hyprpaper", "wallpaper", &arg])
-                    .status()
-                    .is_ok_and(|s| s.success());
-            }
-            ok
-        }
+        },
         Compositor::Sway => Command::new("swaymsg")
             .args(["output", "*", "bg", path, "fill"])
             .status()
             .is_ok_and(|s| s.success()),
         Compositor::Generic => {
             if command_exists("swww") {
-                Command::new("swww")
-                    .args(["img", path])
-                    .status()
-                    .is_ok_and(|s| s.success())
+                apply_wallpaper_swww(path)
             } else if command_exists("swaybg") {
-                let _ = Command::new("pkill").arg("swaybg").status();
-                Command::new("swaybg")
-                    .args(["-i", path, "-m", "fill"])
-                    .spawn()
-                    .is_ok()
+                apply_wallpaper_swaybg(path)
             } else if command_exists("feh") {
                 Command::new("feh")
                     .args(["--bg-fill", path])
@@ -289,11 +365,17 @@ fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
 fn clear_wallpaper() {
     clear_persisted();
     match detect_compositor() {
-        Compositor::Hyprland => {
-            let _ = Command::new("hyprctl")
-                .args(["hyprpaper", "unload", "all"])
-                .status();
-        }
+        Compositor::Hyprland => match detect_wallpaper_daemon() {
+            WallpaperDaemon::Swww => {
+                let _ = Command::new("swww").arg("clear").status();
+            }
+            WallpaperDaemon::Swaybg => {
+                let _ = Command::new("pkill").arg("swaybg").status();
+            }
+            WallpaperDaemon::Hyprpaper | WallpaperDaemon::None => {
+                let _ = Command::new("hyprctl").args(["hyprpaper", "unload", "all"]).status();
+            }
+        },
         Compositor::Sway => {
             let _ = Command::new("swaymsg")
                 .args(["output", "*", "bg", "none"])

@@ -24,20 +24,22 @@ const FALLBACK_MONITOR_WIDTH: u32 = 1366;
 /// real monitor guarantees the requested size and the anchor-stretched size
 /// always agree, on any screen.
 ///
-/// Tries `niri_monitor_width()`, then `sway_monitor_width()` — see their doc
-/// comments for why neither can go through `helium_wsl` — falling back to
-/// `compositors::detect()` (Hyprland) before finally giving up on the
-/// hardcoded default. `helium_wsl::compositors::detect()` doesn't know about
-/// Sway at all (only Hyprland/niri), so without the dedicated Sway query
-/// below every Sway machine would silently hit the same fallback the niri
-/// bug above used to cause — visible there as a *centered* bar with equal
-/// gaps on both sides rather than niri's flush-left one, because wlroots
-/// follows the wlr-layer-shell spec literally: an undersized surface
-/// anchored to both opposing edges gets centered on that axis, where niri
-/// just anchors it to the one edge and leaves the rest of the row empty.
+/// Tries `niri_monitor_width()`, then `sway_monitor_width()`, then
+/// `mango_monitor_width()` — see their doc comments for why none of them can
+/// go through `helium_wsl` — falling back to `compositors::detect()`
+/// (Hyprland) before finally giving up on the hardcoded default.
+/// `helium_wsl::compositors::detect()` doesn't know about Sway or mangowc at
+/// all (only Hyprland/niri), so without those dedicated queries every
+/// Sway/mangowc machine would silently hit the same fallback the niri bug
+/// above used to cause — visible there as a *centered* bar with equal gaps
+/// on both sides rather than niri's flush-left one, because wlroots follows
+/// the wlr-layer-shell spec literally: an undersized surface anchored to
+/// both opposing edges gets centered on that axis, where niri just anchors
+/// it to the one edge and leaves the rest of the row empty.
 fn primary_monitor_width() -> u32 {
     niri_monitor_width()
         .or_else(sway_monitor_width)
+        .or_else(mango_monitor_width)
         .or_else(|| {
             compositors::detect().ok().and_then(|c| {
                 let monitors = c.monitors();
@@ -115,6 +117,51 @@ fn sway_monitor_width() -> Option<u32> {
         .or_else(|| outputs.first())
         .and_then(|o| o.get("rect")?.get("width")?.as_u64())
         .map(|w| w as u32)
+}
+
+/// Reads the active output's logical width from mangowc's IPC — a
+/// newline-terminated text command (`get all-monitors`) sent over the Unix
+/// socket at `$MANGO_INSTANCE_SIGNATURE`, replying with one JSON line (per
+/// mango's own `mmsg` client source and `docs/ipc.md`).
+/// `helium_wsl::compositors::detect()` has no mango backend at all, so this
+/// is additive rather than a workaround for a broken upstream parse, same as
+/// `sway_monitor_width()` above. `width` in the reply is already
+/// logical/scale-adjusted — confirmed against a live instance: a
+/// 1920px-wide physical output at scale 1.25 reports `width: 1536` — which
+/// is what a layer-shell surface needs, same as `logical.width`/`rect.width`
+/// above.
+///
+/// Returns `None` for anything but exactly one *active* monitor, since
+/// mango's monitor list has no "primary"/"focused" flag to disambiguate —
+/// same reasoning as `niri_monitor_width()`'s single-output requirement.
+fn mango_monitor_width() -> Option<u32> {
+    let reply = mango_command("get all-monitors")?;
+    let value: serde_json::Value = serde_json::from_str(reply.trim()).ok()?;
+    let monitors: Vec<&serde_json::Value> = value
+        .get("monitors")?
+        .as_array()?
+        .iter()
+        .filter(|m| m.get("active").and_then(|v| v.as_bool()).unwrap_or(false))
+        .collect();
+    if monitors.len() != 1 {
+        return None;
+    }
+    monitors[0].get("width")?.as_u64().map(|w| w as u32)
+}
+
+/// Sends one `mmsg`-protocol request to mango's control socket and returns
+/// the first reply line — same shape as `niri_command` above (newline-framed
+/// request, single-line JSON reply), just a different env var and plain-text
+/// command instead of a JSON one.
+fn mango_command(req: &str) -> Option<String> {
+    let path = std::env::var("MANGO_INSTANCE_SIGNATURE").ok()?;
+    let mut stream = UnixStream::connect(&path).ok()?;
+    stream.write_all(req.as_bytes()).ok()?;
+    stream.write_all(b"\n").ok()?;
+    let mut reader = std::io::BufReader::new(stream);
+    let mut line = String::new();
+    std::io::BufRead::read_line(&mut reader, &mut line).ok()?;
+    Some(line)
 }
 
 /// Fetches workspace state directly from Sway's `GET_WORKSPACES` IPC message
@@ -243,12 +290,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // session-menu binaries (spawn-on-demand, like rofi — see their doc
     // comments for why they're separate processes instead of toggled panels
     // inside this one).
-    shell.on_signal("Bar", "launcher_clicked", |_| {
-        spawn_sibling("helium-launcher")
-    });
-    shell.on_signal("Bar", "session_clicked", |_| {
-        spawn_sibling("helium-session")
-    });
+    shell.on_signal("Bar", "launcher_clicked", |_| spawn_sibling("helium-launcher"));
+    shell.on_signal("Bar", "session_clicked", |_| spawn_sibling("helium-session"));
+    shell.on_signal("Bar", "ollama_clicked", |_| spawn_sibling("helium-ollama"));
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
     shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());
     shell.on_signal("Bar", "battery_clicked", |_| cycle_power_profile());

@@ -1,15 +1,15 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 pkgname=helium-shell
-pkgver=0.1.4
+pkgver=0.1.8
 pkgrel=1
 pkgdesc="A Wayland shell built with the Helium shell framework"
 arch=('x86_64')
 url="https://github.com/dani-77/helium-d77"
 license=('MIT')
-depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam')
+depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam' 'wl-clipboard')
 makedepends=('cargo' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('0fac87a6050a1b4122a48ccf54d771696daf7254c03c6926a786f5ab58222734')
+sha256sums=('54148015162d7c7363161aded3130be974d23b2a9b6c75d4b044db0828015592')
 
 prepare() {
 	cd "helium-d77-$pkgver"
@@ -26,7 +26,7 @@ package() {
 	cd "helium-d77-$pkgver"
 
 	# Mirrors the Makefile's BINS -- helium-locker is deliberately left out
-	# (see the README's Locker section for the upstream niri/layer-shika
+	# (see doc/TECHNICAL.md's Locker section for the upstream niri/layer-shika
 	# incompatibility that keeps it out of `make install` too).
 	install -Dm755 target/release/helium-shell "$pkgdir/usr/bin/helium-shell"
 	install -Dm755 target/release/helium-launcher "$pkgdir/usr/bin/helium-launcher"
@@ -34,8 +34,10 @@ package() {
 	install -Dm755 target/release/helium-osd "$pkgdir/usr/bin/helium-osd"
 	install -Dm755 target/release/helium-wallpaper "$pkgdir/usr/bin/helium-wallpaper"
 	install -Dm755 target/release/helium-backdrop "$pkgdir/usr/bin/helium-backdrop"
+	install -Dm755 target/release/helium-ollama "$pkgdir/usr/bin/helium-ollama"
 	install -Dm644 assets/d77-logo.svg "$pkgdir/usr/share/helium-d77/d77-logo.svg"
 
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+	install -Dm644 doc/TECHNICAL.md "$pkgdir/usr/share/doc/$pkgname/TECHNICAL.md"
 }
