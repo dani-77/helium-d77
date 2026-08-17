@@ -1,8 +1,9 @@
-//! CPU / RAM / battery / ALSA volume readers.
+//! CPU / RAM / ALSA volume readers.
 //!
-//! No D-Bus, no external crates beyond what's already pulled in — CPU and
-//! RAM come from `/proc`, battery from sysfs, volume by shelling out to
-//! `amixer` (present on essentially every ALSA-enabled Linux system).
+//! CPU and RAM come from `/proc`, volume by shelling out to `amixer`
+//! (present on essentially every ALSA-enabled Linux system). Battery lives
+//! in `upower.rs` instead — it needs a real D-Bus round trip (UPower's
+//! aggregated `DisplayDevice`), not a plain file read.
 
 use std::fs;
 use std::process::Command;
@@ -57,35 +58,6 @@ pub fn ram_usage_percent() -> Option<u8> {
         return None;
     }
     Some((100 * (total.saturating_sub(available)) / total) as u8)
-}
-
-pub struct BatteryInfo {
-    pub percent: u8,
-    pub charging: bool,
-}
-
-/// Reads the first `/sys/class/power_supply/*` device whose type is
-/// "Battery" (name varies: BAT0, BAT1, ...).
-pub fn battery() -> Option<BatteryInfo> {
-    let entries = fs::read_dir("/sys/class/power_supply").ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let kind = fs::read_to_string(path.join("type")).ok()?;
-        if kind.trim() != "Battery" {
-            continue;
-        }
-        let percent: u8 = fs::read_to_string(path.join("capacity"))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()?;
-        let status = fs::read_to_string(path.join("status")).unwrap_or_default();
-        return Some(BatteryInfo {
-            percent,
-            charging: status.trim() == "Charging",
-        });
-    }
-    None
 }
 
 pub struct VolumeInfo {

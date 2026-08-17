@@ -98,6 +98,7 @@ export component Bar inherits Window {
     in property <string> ram_text: "…";
     in property <string> bat_text: "…";
     in property <bool> bat_charging: false;
+    in property <bool> bat_present: true;
     in property <string> vol_text: "…";
     in property <bool> vol_muted: false;
     in property <string> clock_text: "";
@@ -240,14 +241,31 @@ export component Bar inherits Window {
                 Divider { }
                 StatChip { width: 64px; icon: "\u{F0A0}"; value: ram_text; highlight: true; }
                 Divider { }
-                StatChip {
-                    width: 64px;
+                bat_chip := StatChip {
+                    // Hidden on a battery-less desktop instead of showing a
+                    // stale/fake reading — see `bat_present` in main.rs.
+                    visible: bat_present;
+                    // Wider than the other 64px chips: bat_text carries the
+                    // time estimate too now, e.g. "36% (1h54m)" — a hover
+                    // tooltip (PopupWindow) was tried first, but it doesn't
+                    // compose with this bar's wlr-layer-shell surface: its
+                    // `y` positions relative to the output, not the bar, so
+                    // it rendered overlapping the bar instead of below it.
+                    // The lower-level layer-shika crate has a real
+                    // Wayland-positioned popup API, but it isn't exposed by
+                    // the helium-wsl ShellInstance wrapper main.rs otherwise
+                    // relies on for everything — reaching it means giving up
+                    // that wrapper entirely, too big a rewrite for a
+                    // tooltip. Showing the time inline sidesteps the whole
+                    // problem, at the cost of always taking up the room
+                    // instead of only on hover.
+                    width: 110px;
                     icon: bat_charging ? "\u{F0E7}" : "\u{F240}";
                     value: bat_text;
                     highlight: true;
                     TouchArea { clicked => { battery_clicked(); } }
                 }
-                Divider { }
+                Divider { visible: bat_present; }
                 StatChip {
                     width: 72px;
                     icon: vol_muted ? "\u{F026}" : "\u{F028}";

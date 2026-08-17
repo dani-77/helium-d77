@@ -1,5 +1,6 @@
 mod network;
 mod sysinfo;
+mod upower;
 mod weather;
 
 use helium_wsl::compositors::{self, Workspace};
@@ -352,9 +353,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ctx.set("Bar", "ram_text", format!("{pct}%"));
         }
 
-        if let Some(bat) = sysinfo::battery() {
-            ctx.set("Bar", "bat_text", format!("{}%", bat.percent));
-            ctx.set("Bar", "bat_charging", bat.charging);
+        if let Some(bat) = upower::battery() {
+            ctx.set("Bar", "bat_present", true);
+            ctx.set("Bar", "bat_text", battery_label_text(&bat));
+            ctx.set("Bar", "bat_charging", bat.state == upower::State::Charging);
+        } else {
+            // No battery aggregated by UPower (desktop, or not yet polled)
+            // — hide the chip instead of leaving it stuck on a stale value.
+            ctx.set("Bar", "bat_present", false);
         }
 
         if let Some(vol) = sysinfo::volume() {
@@ -406,6 +412,40 @@ fn toggle_mute() {
     let _ = std::process::Command::new("amixer")
         .args(["set", "Master", "toggle"])
         .spawn();
+}
+
+/// "36%" or, with a time estimate available, "36% (1h54m)". Shown inline
+/// in the bar at all times rather than as a hover tooltip: Slint's
+/// `PopupWindow` doesn't compose with this bar's wlr-layer-shell surface
+/// (see the comment on `bat_chip` in bar.slint) — this is the fallback.
+fn battery_label_text(bat: &upower::BatteryInfo) -> String {
+    let time = match bat.state {
+        upower::State::Charging if bat.time_to_full_secs > 0 => {
+            Some(format_duration(bat.time_to_full_secs))
+        }
+        upower::State::Discharging if bat.time_to_empty_secs > 0 => {
+            Some(format_duration(bat.time_to_empty_secs))
+        }
+        _ => None,
+    };
+    match time {
+        Some(t) => format!("{}% ({t})", bat.percent),
+        None => format!("{}%", bat.percent),
+    }
+}
+
+/// "XhYYm" (or just "Ym" under an hour) from a duration in seconds —
+/// deliberately compact (no spaces) since bat_chip only has 110px to work
+/// with alongside the percentage and icon.
+fn format_duration(seconds: u32) -> String {
+    let total_min = (seconds + 30) / 60; // round to nearest minute
+    let h = total_min / 60;
+    let m = total_min % 60;
+    if h > 0 {
+        format!("{h}h{m:02}m")
+    } else {
+        format!("{m}m")
+    }
 }
 
 /// Power profiles cycled by clicking the battery chip, in the order
