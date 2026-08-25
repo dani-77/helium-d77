@@ -63,7 +63,12 @@ fn rt() -> &'static Runtime {
     })
 }
 
-fn get_property(conn: &zbus::Connection, path: &str, iface: &str, prop: &str) -> zbus::Result<OwnedValue> {
+fn get_property(
+    conn: &zbus::Connection,
+    path: &str,
+    iface: &str,
+    prop: &str,
+) -> zbus::Result<OwnedValue> {
     let reply = rt().block_on(conn.call_method(
         Some(UPOWER),
         path,
@@ -94,7 +99,9 @@ pub fn battery() -> Option<BatteryInfo> {
         return None;
     }
 
-    let percent = f64::try_from(&prop("Percentage").ok()?).unwrap_or(0.0).round() as u8;
+    let percent = f64::try_from(&prop("Percentage").ok()?)
+        .unwrap_or(0.0)
+        .round() as u8;
     let state = State::from(u32::try_from(&prop("State").ok()?).unwrap_or(0));
     let time_to_empty_secs = prop("TimeToEmpty")
         .ok()
