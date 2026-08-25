@@ -8,8 +8,10 @@
 //! use, so the choice carries over between whichever of these shells you
 //! run.
 //!
-//! Spawn-on-demand like helium-launcher/helium-session/helium-wallpaper
-//! (opened from the bar's "AI" icon, or bind it directly to a key). Built
+//! Spawn-on-demand like helium-launcher/helium-session/helium-wallpaper,
+//! but with no bar icon of its own — the feature isn't consistent or
+//! reliable enough yet to earn permanent bar real estate. Run it directly,
+//! or bind it to a key. Built
 //! directly on raw `layer_shika::Shell`, not helium-wsl's `Helium` wrapper,
 //! for the same reason as those three: pushing properties back onto the
 //! surface from inside a callback needs `ComponentInstance::as_weak()` /

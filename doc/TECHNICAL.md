@@ -22,13 +22,11 @@ a rounded, floating pill anchored to the top of the screen.
 ## What it shows
 
 ```
-[apps] [AI] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
+[apps] [ 1 2 3 4 5 ]  weather | clock (center)  wifi|cpu|ram|bat|vol [power]
 ```
 
 - **Apps icon** (far left) — opens `helium-launcher`, a searchable app list
   (see Launcher below).
-- **AI icon** (next to it) — opens `helium-ollama`, a chat popup for a
-  locally running Ollama daemon (see Ollama chat below).
 - **Workspaces** — one pill per *actual* live workspace (a `[WorkspaceItem]`
   model built from the compositor's own workspace list, not a hardcoded
   count), active one highlighted green, a small dot marks
@@ -59,8 +57,7 @@ Volume and power-profile changes (from anywhere, not just the bar's own
 clicks) also flash a small OSD in the top-right corner — see OSD below.
 
 Every section has a Nerd Font icon (apps/workspaces/weather/clock/network/cpu/
-ram/battery/volume/power) — see Requirements. The AI icon is the one
-exception: plain bold text ("AI"), not a Symbols Nerd Font glyph.
+ram/battery/volume/power) — see Requirements.
 
 ## Launcher (`helium-launcher`)
 
@@ -188,7 +185,9 @@ one-shot/persisted state: it's just "install list is empty," so it'll
 offer again next time the popup opens if you cancel it or if Ollama has no
 models installed for any other reason.
 
-Opened by clicking the "AI" icon in the bar, or bind it directly to a key:
+There's deliberately no bar icon for it — the feature isn't consistent or
+reliable enough yet to earn permanent bar real estate. Run it directly, or
+bind it to a key:
 
 ```
 bind = SUPER, A, exec, /usr/bin/helium-ollama
@@ -425,8 +424,9 @@ sudo make uninstall
 - `helium-shell` needs autostarting by your compositor as usual;
   `helium-osd` and `helium-backdrop` additionally need their own autostart
   entries (see their sections above) — the bar doesn't launch either for
-  you. `helium-wallpaper` and `helium-ollama` are spawn-on-demand via the
-  bar/a keybind, same as `helium-launcher`/`helium-session`.
+  you. `helium-wallpaper` is spawn-on-demand via the bar or a keybind, same
+  as `helium-launcher`/`helium-session`; `helium-ollama` has no bar icon
+  (see Ollama chat above) — it's keybind/manual-run only.
 
 ## Packaging
 

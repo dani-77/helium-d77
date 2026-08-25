@@ -44,12 +44,12 @@ feel consistent across all three.
 ## Screenshot tour
 
 ```
-[apps] [AI] [ 1 2 3 4 5 ]        Clear +20°C · 14:32        Wi-Fi  92%  |  CPU 12%  |  RAM 41%  |  🔋 87%  |  🔊 60%  [⏻]
+[apps] [ 1 2 3 4 5 ]        Clear +20°C · 14:32        Wi-Fi  92%  |  CPU 12%  |  RAM 41%  |  🔋 87%  |  🔊 60%  [⏻]
 ```
 
-From left to right: app launcher, AI chat, your workspaces, the weather and
-clock centered on the bar, then network, CPU, RAM, battery, and volume — with
-the power/session menu on the far right.
+From left to right: app launcher, your workspaces, the weather and clock
+centered on the bar, then network, CPU, RAM, battery, and volume — with the
+power/session menu on the far right.
 
 ## Installing
 
@@ -100,7 +100,13 @@ those:
 | `helium-shell` (the bar) | automatically, add to your compositor config (above) |
 | `helium-osd` (volume/brightness popup) | automatically — add its own `exec-once` line, same as the bar |
 | `helium-backdrop` (background shown when no wallpaper is set) | automatically — same as above, optional |
-| `helium-launcher`, `helium-wallpaper`, `helium-ollama`, `helium-session` | on demand — opened by clicking their icon in the bar, or a keybind (see [Keyboard shortcuts](#keyboard-shortcuts)) |
+| `helium-launcher`, `helium-wallpaper`, `helium-session` | on demand — opened by clicking their icon in the bar, or a keybind (see [Keyboard shortcuts](#keyboard-shortcuts)) |
+| `helium-ollama` (AI chat) | on demand — no bar icon (see note below), run it directly or bind a key |
+
+There's deliberately no bar icon for `helium-ollama` — the feature isn't
+consistent or reliable enough yet to earn permanent bar real estate. It
+still ships and works the same as before: run `helium-ollama` yourself, or
+bind a key to it as shown below.
 
 ## Keyboard shortcuts
 
