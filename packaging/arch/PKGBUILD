@@ -1,6 +1,6 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 pkgname=helium-shell
-pkgver=0.1.8
+pkgver=0.1.9
 pkgrel=1
 pkgdesc="A Wayland shell built with the Helium shell framework"
 arch=('x86_64')
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('wayland' 'libxkbcommon' 'fontconfig' 'freetype2' 'pam' 'wl-clipboard')
 makedepends=('cargo' 'pkgconf' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/dani-77/helium-d77/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('54148015162d7c7363161aded3130be974d23b2a9b6c75d4b044db0828015592')
+sha256sums=('79ac23b803d4ec7304ee9f3bc5f5800c4607f806e74fd872bb1b0a6ea3e200be')
 
 prepare() {
 	cd "helium-d77-$pkgver"
