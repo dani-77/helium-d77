@@ -59,6 +59,12 @@ const WINDOW_WIDTH: u32 = 560;
 const WINDOW_HEIGHT: u32 = 620;
 const FALLBACK_MODEL: &str = "qwen2.5:0.5b";
 const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
+/// Keeps the model resident across a whole chat session instead of paying a
+/// full reload on every single message (Ollama's own server-side default is
+/// also 5min, same reason). `unload_model` forces it back out as soon as the
+/// window closes, so nothing lingers loaded longer than an actual session —
+/// see `close_requested` in `main`.
+const CHAT_KEEP_ALIVE: &str = "5m";
 const STATUS_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const MODELS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const ROW_HEIGHT: u32 = 28;
@@ -124,11 +130,27 @@ fn nvidia_vram_mb() -> Option<u64> {
         .ok()
 }
 
+/// AMD APUs report themselves in `/proc/cpuinfo` as e.g. "AMD Ryzen 7
+/// 5825U with Radeon Graphics" — AMD's standard marketing suffix across
+/// nearly all their iGPU-equipped CPU lines. This is a more reliable
+/// integrated-vs-discrete signal than the GPU's own lspci description,
+/// which often uses just a bare codename (e.g. "Barcelo") with neither
+/// "Radeon" nor "Graphics" in it at all — the case that slips past a
+/// lspci-only check on real hardware (verified on a Ryzen 7 5825U: its
+/// `lspci` VGA line reads only "[AMD/ATI] Barcelo", no "Radeon"/"Graphics").
+fn cpu_has_integrated_radeon() -> bool {
+    std::fs::read_to_string("/proc/cpuinfo")
+        .map(|s| s.to_lowercase().contains("with radeon graphics"))
+        .unwrap_or(false)
+}
+
 /// There's no portable way to read AMD/Intel VRAM without vendor-specific
 /// tools that aren't always installed (`rocm-smi`, `intel_gpu_top`), so
 /// this only detects the *presence* of a dedicated card via `lspci`,
 /// filtering out the display-controller names integrated chipsets
-/// commonly report themselves as.
+/// commonly report themselves as (plus, for AMD, cross-checking against
+/// `cpu_has_integrated_radeon` — see its doc comment for why the lspci
+/// text alone isn't reliable enough on its own).
 fn other_dedicated_gpu_present() -> bool {
     let Ok(output) = Command::new("lspci").output() else {
         return false;
@@ -136,15 +158,20 @@ fn other_dedicated_gpu_present() -> bool {
     if !output.status.success() {
         return false;
     }
+    let cpu_igpu = cpu_has_integrated_radeon();
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|l| l.contains("VGA compatible controller") || l.contains("3D controller"))
         .any(|l| {
             let l = l.to_lowercase();
+            if l.contains("rx") {
+                return true; // explicit discrete Radeon RX card
+            }
             let integrated = l.contains("uhd graphics")
                 || l.contains("hd graphics")
                 || l.contains("iris")
-                || (l.contains("radeon") && l.contains("graphics") && !l.contains("rx"));
+                || (l.contains("radeon") && l.contains("graphics"))
+                || (cpu_igpu && (l.contains("amd") || l.contains("ati")));
             !integrated
         })
 }
@@ -214,6 +241,30 @@ fn ollama_running() -> bool {
         ])
         .output();
     matches!(output, Ok(o) if o.status.success() && o.stdout == b"200")
+}
+
+/// Fire-and-forget-with-a-bound: drops `model` from memory right away
+/// instead of waiting out `CHAT_KEEP_ALIVE`. A request with keep_alive=0
+/// and no prompt just unloads, it doesn't generate anything. Called from
+/// `close_requested` right before the process exits, bounded the same way
+/// `ollama_running`/`internet_reachable` are so a stalled request can't hang
+/// window close.
+fn unload_model(model: &str) {
+    let body = serde_json::json!({ "model": model, "keep_alive": 0 }).to_string();
+    let _ = Command::new("curl")
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "--max-time",
+            "3",
+            "-X",
+            "POST",
+            &format!("{OLLAMA_BASE}/api/generate"),
+            "-d",
+            &body,
+        ])
+        .output();
 }
 
 /// Bounded reachability check against Ollama's own site — cheap way to know
@@ -290,6 +341,14 @@ enum OllamaEvent {
     GenerateToken(String),
     GenerateFinished,
 }
+
+/// Accumulated {role, content} turns, sent whole on every request via
+/// /api/chat so the model actually remembers earlier turns — the plain
+/// /api/generate call this used to make only ever saw the latest prompt in
+/// isolation. No reset needed: this binary is spawn-on-demand with no
+/// resident bar icon (see the module doc comment), so a fresh conversation
+/// always starts with a fresh process and an empty history.
+type SharedMessages = std::sync::Arc<std::sync::Mutex<Vec<Json>>>;
 
 /// Handle to a running `curl` pull, shared between `spawn_pull`'s own
 /// thread and `cancel_pull` (called from the "Stop" button on the
@@ -440,15 +499,17 @@ fn spawn_pull(tx: Sender<OllamaEvent>, model: String, auto: bool) -> SharedPullH
 /// completion, same as fabric-d77's `requests` idle-timeout behaves. Still
 /// exits with curl code 28 on trip, so the exit-code handling below is
 /// unchanged.
-fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> SharedGenerateHandle {
+fn spawn_generate(
+    tx: Sender<OllamaEvent>,
+    model: String,
+    messages: SharedMessages,
+) -> SharedGenerateHandle {
     let handle: SharedGenerateHandle = Default::default();
     let handle_thread = handle.clone();
     thread::spawn(move || {
-        // keep_alive: 0 unloads the model right after this reply instead of
-        // idling on Ollama's server-side 5min default — see
-        // quickshell-d77/utumno's OllamaChat.qml, same fix, same reason.
+        let snapshot = messages.lock().unwrap().clone();
         let body = serde_json::json!({
-            "model": model, "prompt": prompt, "stream": true, "keep_alive": 0
+            "model": model, "messages": snapshot, "stream": true, "keep_alive": CHAT_KEEP_ALIVE
         })
         .to_string();
         let child = Command::new("curl")
@@ -459,7 +520,7 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
                 "1",
                 "--speed-time",
                 "30",
-                &format!("{OLLAMA_BASE}/api/generate"),
+                &format!("{OLLAMA_BASE}/api/chat"),
                 "-d",
                 &body,
             ])
@@ -493,6 +554,7 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
         *handle_thread.child.lock().unwrap() = Some(child);
 
         let mut got_any = false;
+        let mut reply = String::new();
         if let Some(stdout) = stdout {
             for line in BufReader::new(stdout).lines().map_while(|l| l.ok()) {
                 let Ok(chunk) = serde_json::from_str::<Json>(&line) else {
@@ -504,9 +566,14 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
                         "\n[model error: {err}]\n"
                     )))
                     .ok();
-                } else if let Some(resp) = chunk.get("response").and_then(|v| v.as_str()) {
-                    if !resp.is_empty() {
-                        tx.send(OllamaEvent::GenerateToken(resp.to_string())).ok();
+                } else if let Some(piece) = chunk
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|v| v.as_str())
+                {
+                    if !piece.is_empty() {
+                        reply.push_str(piece);
+                        tx.send(OllamaEvent::GenerateToken(piece.to_string())).ok();
                     }
                 }
             }
@@ -549,6 +616,11 @@ fn spawn_generate(tx: Sender<OllamaEvent>, model: String, prompt: String) -> Sha
             if let Some(msg) = msg {
                 tx.send(OllamaEvent::GenerateToken(msg)).ok();
             }
+        }
+        if !reply.is_empty() {
+            messages.lock().unwrap().push(serde_json::json!({
+                "role": "assistant", "content": reply
+            }));
         }
         tx.send(OllamaEvent::GenerateFinished).ok();
     });
@@ -664,6 +736,7 @@ fn main() -> Result<()> {
     // single moved value.
     let current_generate: std::sync::Arc<std::sync::Mutex<Option<SharedGenerateHandle>>> =
         Default::default();
+    let messages: SharedMessages = Default::default();
 
     let initial_model_count = initial_models.len();
     shell.with_surface("Ollama", |comp| {
@@ -733,6 +806,7 @@ fn main() -> Result<()> {
         let weak = comp.as_weak();
         let tx_prompt = tx.clone();
         let current_generate_submit = current_generate.clone();
+        let messages_submit = messages.clone();
         comp.set_callback("prompt_submitted", move |args| {
             let Some(Value::String(prompt)) = args.first() else {
                 return Value::Void;
@@ -756,7 +830,10 @@ fn main() -> Result<()> {
                 )
                 .ok();
             instance.set_property("generating", Value::Bool(true)).ok();
-            let handle = spawn_generate(tx_prompt.clone(), model, prompt);
+            messages_submit.lock().unwrap().push(serde_json::json!({
+                "role": "user", "content": prompt
+            }));
+            let handle = spawn_generate(tx_prompt.clone(), model, messages_submit.clone());
             *current_generate_submit.lock().unwrap() = Some(handle);
             Value::Void
         })
@@ -771,7 +848,13 @@ fn main() -> Result<()> {
         })
         .ok();
 
+        let weak = comp.as_weak();
         comp.set_callback("close_requested", move |_| {
+            if let Some(instance) = weak.upgrade() {
+                if let Ok(Value::String(model)) = instance.get_property("current_model") {
+                    unload_model(&model);
+                }
+            }
             std::process::exit(0);
         })
         .ok();

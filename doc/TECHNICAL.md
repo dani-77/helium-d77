@@ -155,7 +155,16 @@ as it arrives, lets you switch between installed models or pull a new one
 straight from the popup with live download progress, and remembers the
 last picked model at `~/.config/ollama-chat/model.conf` — the same path
 quickshell-d77/utumno use, so the choice carries over between whichever of
-these shells you happen to be running.
+these shells you happen to be running. Chat requests go through
+`/api/chat` with the whole accumulated conversation (`SharedMessages`, an
+`Arc<Mutex<Vec<Json>>>`) sent on every request, so the model actually
+remembers earlier turns instead of seeing each prompt in isolation — no
+reset needed on close, since this binary is spawn-on-demand with no
+resident bar icon, so a fresh conversation always starts with a fresh
+process. The model itself stays loaded for the rest of the session
+(`keep_alive: "5m"`) rather than reloading from scratch on every message,
+and `close_requested` explicitly unloads it (a bounded, synchronous
+`keep_alive: 0` request) before the process exits.
 
 The history pane is a read-only `TextInput` rather than a plain `Text`, so
 the model's output (code, scripts, whatever it wrote) can be selected with
@@ -231,6 +240,14 @@ starting point" hint rather than a size range. No dedicated GPU at all
 falls back to a small-model (≤3B) suggestion for CPU. This is advisory
 only, shown purely as text in the install panel — it never changes which
 model gets picked or auto-installs anything.
+
+`other_dedicated_gpu_present()` also cross-checks `/proc/cpuinfo` for
+AMD's "with Radeon Graphics" marketing suffix (present on nearly every
+iGPU-equipped Ryzen) before trusting an AMD-looking `lspci` line: some
+APUs report only a bare codename (e.g. `[AMD/ATI] Barcelo`, no
+"Radeon"/"Graphics" in it) that the plain integrated-name filter
+(`uhd graphics`/`hd graphics`/`iris`/`radeon`+`graphics`) doesn't catch on
+its own, and would otherwise be mistaken for a dedicated card.
 
 ## Backdrop (`helium-backdrop`)
 
