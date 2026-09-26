@@ -447,11 +447,13 @@ sudo make uninstall
 
 ## Packaging
 
-Draft packaging templates live under `packaging/`: `packaging/void/template`
-(xbps-src) and `packaging/arch/PKGBUILD`. Both build the same seven binaries
-`make install` does (`helium-locker` stays out for the reason in Locker
-above) and need their checksum/`sha256sums` filled in once a version is
-actually tagged upstream.
+Packaging templates live under `packaging/`: `packaging/void/template`
+(xbps-src, a copy of the one in
+[`d77void/srcpkgs-d77`](https://github.com/d77void/srcpkgs-d77)) and
+`packaging/arch/PKGBUILD` (the one published in the AUR as
+[`helium-d77`](https://aur.archlinux.org/packages/helium-d77)). Both build the
+tagged release tarball and install the same seven binaries `make install`
+does (`helium-locker` stays out for the reason in Locker above).
 
 ## Running
 

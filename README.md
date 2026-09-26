@@ -53,6 +53,11 @@ power/session menu on the far right.
 
 ## Installing
 
+On **Arch Linux** it's in the AUR as
+[`helium-d77`](https://aur.archlinux.org/packages/helium-d77) (`yay -S helium-d77`).
+On **Void Linux**, an `xbps-src` template lives in
+[`packaging/void/template`](packaging/void/template). Otherwise, from source:
+
 1. Make sure you have Rust and a few system libraries installed — see
    [Requirements](#requirements) below.
 2. Build and install everything with:
