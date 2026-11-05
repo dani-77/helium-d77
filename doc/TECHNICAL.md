@@ -313,9 +313,9 @@ Requires a PAM service file at `/etc/pam.d/helium-locker` (source in
 `pam.d/helium-locker` in this repo). Without it, PAM fails closed: the lock
 screen comes up but no password will ever be accepted.
 
-**The PAM file isn't installed by `make install`** while the bug above is
-unresolved (see the Makefile's own comment). To work on the locker, install it
-by hand, and keep another way into the machine in case it won't unlock:
+**Not installed by `make install`** while the bug above is unresolved (see the
+Makefile's own comment). To work on the locker, install it by hand, and keep
+another way into the machine in case it won't unlock:
 
 ```sh
 cargo build --release --bin helium-locker
