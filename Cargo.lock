@@ -1599,6 +1599,8 @@ dependencies = [
  "pam-client2",
  "serde_json",
  "tokio",
+ "wayland-client",
+ "wayland-protocols",
  "zbus 4.4.0",
  "zvariant 4.2.0",
 ]

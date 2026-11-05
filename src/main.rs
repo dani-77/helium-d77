@@ -1,3 +1,4 @@
+mod ext_workspace;
 mod network;
 mod sysinfo;
 mod upower;
@@ -59,6 +60,9 @@ fn primary_monitor_width() -> u32 {
                     .map(|m| (m.width as f64 / m.scale).round() as u32)
             })
         })
+        // Compositors with none of the IPCs above (wasp, spitfire): xdg-output
+        // also reports logical width. On several outputs this is the first one.
+        .or_else(|| ext_workspace::client()?.first_output_width())
         .unwrap_or(FALLBACK_MONITOR_WIDTH)
 }
 
@@ -558,6 +562,11 @@ fn switch_workspace(n: i32) {
     if std::env::var("SWAYSOCK").is_ok() {
         const RUN_COMMAND: u32 = 0;
         sway_command(RUN_COMMAND, format!("workspace number {n}").as_bytes());
+        return;
+    }
+
+    if let Some(client) = ext_workspace::client() {
+        client.activate(n);
     }
 }
 
@@ -575,7 +584,7 @@ fn current_workspaces() -> Vec<Workspace> {
     if std::env::var("SWAYSOCK").is_ok() {
         return sway_workspaces();
     }
-    vec![]
+    ext_workspace::client().map_or_else(Vec::new, |client| client.workspaces())
 }
 
 /// Builds the `[WorkspaceItem]` model value for `ui/bar.slint`'s `workspaces`

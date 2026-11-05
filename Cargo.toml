@@ -20,5 +20,9 @@ serde_json = "1"
 # helium-locker can call `Shell::create_session_lock`, which helium-wsl's own
 # `Helium`/`ShellInstance` wrapper doesn't expose yet.
 layer-shika = "0.3"
+# Direct dependencies for src/ext_workspace.rs, already in the tree through
+# layer-shika. `staging` brings ext-workspace-v1, `unstable` brings xdg-output.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
 pam-client2 = "0.5"
 env_logger = "0.11"
