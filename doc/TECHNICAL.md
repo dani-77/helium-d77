@@ -92,8 +92,9 @@ A Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the action set
 and commands from a quickshell "session menu" widget: `loginctl <action>`
 with a `systemctl <action>` fallback for suspend/reboot/poweroff,
 `loginctl terminate-session "$XDG_SESSION_ID"` for logout (falls back to
-`self` if that variable isn't set). Lock runs `hyprlock` if it's installed,
-falling back to `loginctl lock-session` otherwise.
+`self` if that variable isn't set). Lock runs the first of `amorphis`,
+`swaylock` and `hyprlock` that's installed, falling back to
+`loginctl lock-session` otherwise.
 
 Grabs keyboard focus as soon as it opens. Left/Right move the selection
 across the row (Cancel included), Enter activates whichever button is
@@ -289,8 +290,8 @@ spawn-at-startup "/usr/bin/helium-backdrop"
 
 ## Locker (`helium-locker`)
 
-A native screen locker, unlike the `hyprlock`/`loginctl` shell-outs the
-session menu currently uses: it locks the session itself via the
+A native screen locker, unlike the external lockers the session menu currently
+shells out to: it locks the session itself via the
 `ext-session-lock-v1` Wayland protocol, so the compositor enforces the lock
 rather than a window merely being drawn on top. Shows a clock, date, and
 password field (`ui/lock.slint`), verified against PAM.

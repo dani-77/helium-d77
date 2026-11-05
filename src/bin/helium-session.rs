@@ -34,7 +34,7 @@ fn session_command(action: &str) -> String {
     format!("loginctl {action} 2>&1 || systemctl {action} 2>&1")
 }
 
-/// Shells out to hyprlock / loginctl rather than the sibling `helium-locker`
+/// Shells out to an external locker rather than the sibling `helium-locker`
 /// binary (native ext-session-lock-v1, see its own doc comment).
 ///
 /// helium-locker is temporarily disabled here: its session-lock surface
@@ -46,9 +46,14 @@ fn session_command(action: &str) -> String {
 /// lock.slint, and not specific to either compositor. Revert to preferring
 /// helium-locker (see git blame) once that's fixed upstream.
 fn lock_command() -> String {
-    // hyprlock if present (matches quickshell-d77's lock keybind);
-    // loginctl lock-session as a generic fallback otherwise.
-    "command -v hyprlock >/dev/null 2>&1 && hyprlock || loginctl lock-session".to_string()
+    // The first locker installed, with loginctl lock-session as a generic
+    // fallback. if/elif rather than `a && b || c`: a locker exiting with an
+    // error must not fall through and run the next one.
+    "if command -v amorphis >/dev/null 2>&1; then amorphis --backend wayland --effect blur; \
+     elif command -v swaylock >/dev/null 2>&1; then swaylock; \
+     elif command -v hyprlock >/dev/null 2>&1; then hyprlock; \
+     else loginctl lock-session; fi"
+        .to_string()
 }
 
 fn actions() -> Vec<Action> {
