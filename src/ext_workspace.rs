@@ -285,8 +285,10 @@ impl Dispatch<ExtWorkspaceHandleV1, ()> for Listener {
             Event::Name { name } => workspace.name = name,
             Event::Coordinates { coordinates } => {
                 workspace.coordinates = coordinates
-                    .chunks_exact(4)
-                    .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|c| u32::from_ne_bytes(*c))
                     .collect();
             }
             Event::State {
