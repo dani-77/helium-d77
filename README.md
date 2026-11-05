@@ -36,8 +36,8 @@ feel consistent across all three.
   model — ask it something without opening a terminal.
 - **A session menu** — lock, suspend, reboot, shut down, or log out from one
   place.
-- **A screen locker** with a clock and password field (currently only
-  recommended on Hyprland/Sway — see [Known limitations](#known-limitations)).
+- **Screen locking** from the session menu, through `hyprlock`. The native
+  locker isn't ready to use — see [Known limitations](#known-limitations).
 - **An on-screen display** that briefly pops up when you change the volume or
   power profile.
 
@@ -160,10 +160,10 @@ feature just won't do anything until the dependency is installed.
 
 ## Known limitations
 
-- The screen locker (`helium-locker`) doesn't currently work on **niri** —
-  the lock screen appears but niri cancels it almost immediately. It works
-  fine on Hyprland and Sway. It's also not installed by `make install` yet;
-  see the technical docs for how to build it by hand.
+- Don't use the native screen locker (`helium-locker`) for now. Because of a
+  bug upstream in `layer-shika`, the compositor can cancel the lock almost
+  immediately, or the screen can stay locked with no way to unlock it. Use
+  `hyprlock` or `swaylock` instead. See the technical docs for details.
 - Bluetooth controls aren't included in the bar.
 
 ## Want more detail?

@@ -298,12 +298,14 @@ password field (`ui/lock.slint`), verified against PAM.
 Built directly on `layer-shika`'s `Shell` (not helium-wsl's `Helium` wrapper,
 which doesn't expose session-lock yet — see the comment in `Cargo.toml`).
 
-**Not currently wired into the session menu's Lock action** — under niri,
+**Don't use it for now, and not wired into the session menu's Lock action** —
 `layer-shika`'s session-lock surface (which uses `wp_fractional_scale` +
-`wp_viewporter`) gets keyboard/pointer focus and then niri immediately
-cancels the lock via `ext_session_lock_v1.finished()` about 30ms later
-(confirmed with a `WAYLAND_DEBUG=1` trace — not a bug in this repo's own
-code). The binary and PAM setup below are otherwise complete; re-enable the
+`wp_viewporter`) gets keyboard/pointer focus and then the compositor
+immediately cancels the lock via `ext_session_lock_v1.finished()` about 30ms
+later (confirmed with a `WAYLAND_DEBUG=1` trace on niri and reproduced on
+Hyprland — not a bug in this repo's own code). It has also been seen to lock
+the screen with no way to unlock it. The binary and PAM setup below are
+otherwise complete; re-enable the
 `lock_command()` preference in `src/bin/helium-session.rs` once that's fixed
 upstream in `layer-shika`.
 
@@ -311,9 +313,9 @@ Requires a PAM service file at `/etc/pam.d/helium-locker` (source in
 `pam.d/helium-locker` in this repo). Without it, PAM fails closed: the lock
 screen comes up but no password will ever be accepted.
 
-**Not installed by `make install`** while the niri incompatibility above is
-unresolved (see the Makefile's own comment). Build and install it by hand if
-your compositor doesn't hit that bug:
+**The PAM file isn't installed by `make install`** while the bug above is
+unresolved (see the Makefile's own comment). To work on the locker, install it
+by hand, and keep another way into the machine in case it won't unlock:
 
 ```sh
 cargo build --release --bin helium-locker
