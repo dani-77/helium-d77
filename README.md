@@ -105,7 +105,7 @@ those:
 |---|---|
 | `helium-shell` (the bar) | automatically, add to your compositor config (above) |
 | `helium-osd` (volume/brightness popup) | automatically — add its own `exec-once` line, same as the bar |
-| `helium-backdrop` (background shown when no wallpaper is set) | automatically — same as above, optional |
+| `helium-backdrop` (background shown when no wallpaper is set) | automatically — same as above, optional, but without it, clearing the wallpaper shows nothing |
 | `helium-launcher`, `helium-wallpaper`, `helium-session` | on demand — opened by clicking their icon in the bar, or a keybind (see [Keyboard shortcuts](#keyboard-shortcuts)) |
 | `helium-ollama` (AI chat) | on demand — no bar icon (see note below), run it directly or bind a key |
 
