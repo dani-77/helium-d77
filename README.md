@@ -130,6 +130,10 @@ Once a popup is open:
 - **Arrow keys** to move the selection.
 - **Enter** to confirm, **Escape** to close.
 
+On wasp and spitfire, [Kantele](https://github.com/dani-77/kantele) can set up the
+same keys for all the d77 shells: see its
+[shell keys map](https://github.com/dani-77/kantele/blob/main/doc/shell-keys.md).
+
 ## Requirements
 
 - A Wayland session on **Hyprland**, **niri**, or **Sway** (the bar runs
