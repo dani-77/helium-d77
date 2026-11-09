@@ -20,6 +20,7 @@ const AP_IF: &str = "org.freedesktop.NetworkManager.AccessPoint";
 
 pub struct NetInfo {
     pub connected: bool,
+    pub wired: bool,
     pub ssid: Option<String>,
     pub signal_strength: Option<u8>,
 }
@@ -113,7 +114,7 @@ pub fn status() -> zbus::Result<NetInfo> {
             }
             1 => {
                 if let Ok(dev_state_val) = get_property(&conn, dev.as_str(), DEV_IF, "State") {
-                    if u32::try_from(&dev_state_val).unwrap_or(0) >= 100 {
+                    if u32::try_from(&dev_state_val).unwrap_or(0) == 100 {
                         has_wired = true;
                     }
                 }
@@ -122,13 +123,20 @@ pub fn status() -> zbus::Result<NetInfo> {
         }
     }
 
-    Ok(NetInfo {
-        connected,
-        ssid: ssid.or(if has_wired {
-            Some("wired".to_string())
-        } else {
-            None
-        }),
-        signal_strength,
+    // Match utumno: an activated wired device has priority over Wi-Fi.
+    Ok(if has_wired {
+        NetInfo {
+            connected,
+            wired: true,
+            ssid: Some("wired".to_string()),
+            signal_strength: None,
+        }
+    } else {
+        NetInfo {
+            connected,
+            wired: false,
+            ssid,
+            signal_strength,
+        }
     })
 }

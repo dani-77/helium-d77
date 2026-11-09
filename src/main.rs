@@ -346,8 +346,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (Some(s), Some(strength)) => format!("{s}  {strength}%"),
                 (Some(s), None) => s.clone(),
                 (None, _) if info.connected => "connected".to_string(),
-                (None, _) => "offline".to_string(),
+                (None, _) => "Disconnected".to_string(),
             };
+            let icon = if info.wired {
+                "\u{f0200}"
+            } else if info.connected {
+                "\u{f1eb}"
+            } else {
+                "\u{f092d}"
+            };
+            ctx.set("Bar", "net_icon", icon);
             ctx.set("Bar", "net_text", label);
             ctx.set("Bar", "net_connected", info.connected);
         }

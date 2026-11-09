@@ -92,13 +92,14 @@ export component Bar inherits Window {
 
     in property <[WorkspaceItem]> workspaces: [];
 
+    in property <string> net_icon: "\u{F092D}";
     in property <string> net_text: "…";
     in property <bool> net_connected: false;
     in property <string> cpu_text: "…";
     in property <string> ram_text: "…";
     in property <string> bat_text: "…";
     in property <bool> bat_charging: false;
-    in property <bool> bat_present: true;
+    in property <bool> bat_present: false;
     in property <string> vol_text: "…";
     in property <bool> vol_muted: false;
     in property <string> clock_text: "";
@@ -214,7 +215,7 @@ export component Bar inherits Window {
 
                 StatChip {
                     width: 190px;
-                    icon: "\u{F1EB}";
+                    icon: net_icon;
                     value: net_text;
                     highlight: net_connected;
                     TouchArea { clicked => { network_clicked(); } }
