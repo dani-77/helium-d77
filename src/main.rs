@@ -276,12 +276,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Seed initial workspace state so the bar isn't blank before the first tick.
     apply_workspaces(&mut shell, &current_workspaces());
-    if let Some(w) = weather::status() {
-        shell.set(
-            "Bar",
-            "weather_text",
-            format!("{}  {}", w.condition, w.temperature),
-        );
+    // `shell.set` only reaches the first monitor's bar; the 1 s tick below
+    // repeats these seeds through `ctx.set`, which reaches every bar.
+    let mut weather_seed = weather::status().map(|w| format!("{}  {}", w.condition, w.temperature));
+    if let Some(text) = &weather_seed {
+        shell.set("Bar", "weather_text", text.clone());
     }
 
     // Clicking a workspace pill dispatches a real workspace switch.
@@ -320,6 +319,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // self-consistent read.
     let mut prev_cpu = None;
     shell.on_tick(Duration::from_secs(1), move |ctx| {
+        ctx.set("Bar", "bar_width", bar_width as i32);
+        if let Some(text) = weather_seed.take() {
+            ctx.set("Bar", "weather_text", text);
+        }
         ctx.set(
             "Bar",
             "clock_text",
@@ -600,7 +603,7 @@ fn current_workspaces() -> Vec<Workspace> {
 /// `Vec<Workspace>` for Hyprland and Niri alike, so the bar shows exactly as
 /// many pills as actually exist instead of a hardcoded count (Niri's
 /// workspaces are dynamic per-monitor, unlike Hyprland's small fixed set).
-fn workspaces_value(workspaces: &[Workspace]) -> Value {
+fn workspaces_value(workspaces: &[Workspace], urgent: &[u32]) -> Value {
     let items: Vec<Value> = workspaces
         .iter()
         .map(|w| {
@@ -609,6 +612,7 @@ fn workspaces_value(workspaces: &[Workspace]) -> Value {
                 ("label".to_string(), Value::String(w.name.clone().into())),
                 ("active".to_string(), Value::Bool(w.active)),
                 ("occupied".to_string(), Value::Bool(w.occupied)),
+                ("urgent".to_string(), Value::Bool(urgent.contains(&w.id))),
             ]
             .into_iter()
             .collect();
@@ -619,9 +623,18 @@ fn workspaces_value(workspaces: &[Workspace]) -> Value {
 }
 
 fn apply_workspaces(shell: &mut ShellInstance, workspaces: &[Workspace]) {
-    shell.set("Bar", "workspaces", workspaces_value(workspaces));
+    shell.set("Bar", "workspaces", workspaces_value(workspaces, &current_urgent()));
 }
 
 fn apply_workspaces_ctx(ctx: &mut TickContext, workspaces: &[Workspace]) {
-    ctx.set("Bar", "workspaces", workspaces_value(workspaces));
+    ctx.set("Bar", "workspaces", workspaces_value(workspaces, &current_urgent()));
+}
+
+/// Positions of the workspaces asking for attention. Only ext-workspace
+/// reports it; the helium_wsl backends and Sway's IPC path don't.
+fn current_urgent() -> Vec<u32> {
+    if compositors::detect().is_ok() || std::env::var("SWAYSOCK").is_ok() {
+        return Vec::new();
+    }
+    ext_workspace::client().map_or_else(Vec::new, |client| client.urgent())
 }

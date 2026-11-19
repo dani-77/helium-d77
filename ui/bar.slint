@@ -11,6 +11,7 @@ export struct WorkspaceItem {
     label: string,
     active: bool,
     occupied: bool,
+    urgent: bool,
 }
 
 component Divider inherits Rectangle {
@@ -20,35 +21,29 @@ component Divider inherits Rectangle {
     border-color: #222;
 }
 
+// Same rule in every d77 shell: active > urgent > occupied > empty, with
+// empty workspaces dimmed.
 component WorkspacePill inherits Rectangle {
     in property <string> label: "";
     in property <bool> active: false;
     in property <bool> occupied: false;
+    in property <bool> urgent: false;
     callback clicked;
 
     width: 26px;
     height: 24px;
-    background: active ? #76b900 : #1f1f1f;
+    background: active ? #76b900 : urgent ? #d64545 : #1f1f1f;
     border-width: 1px;
-    border-color: active ? #76b900 : #333;
+    border-color: active ? #76b900 : urgent ? #d64545 : #333;
+    opacity: !active && !urgent && !occupied ? 0.4 : 1;
 
     Text {
         text: label;
-        color: active ? #0a0a0a : occupied ? #aaa : #555;
+        color: active || urgent ? #0a0a0a : #aaa;
         font-size: 11px;
         font-family: "Space Mono";
         vertical-alignment: center;
         horizontal-alignment: center;
-    }
-
-    Rectangle {
-        visible: occupied && !active;
-        width: 3px;
-        height: 3px;
-        border-radius: 1.5px;
-        background: #76b900;
-        x: (parent.width - self.width) / 2;
-        y: parent.height - 6px;
     }
 
     TouchArea {
@@ -149,6 +144,7 @@ export component Bar inherits Window {
                     label: ws.label;
                     active: ws.active;
                     occupied: ws.occupied;
+                    urgent: ws.urgent;
                     clicked => { workspace_clicked(ws.id); }
                 }
             }

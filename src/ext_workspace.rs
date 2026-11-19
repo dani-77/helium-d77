@@ -28,8 +28,11 @@ use wayland_protocols::xdg::xdg_output::zv1::client::{
 #[derive(Clone)]
 struct Entry {
     handle: ExtWorkspaceHandleV1,
+    /// The compositor's own id ("whiplash-3", "eDP-1-3"); empty if not sent.
+    ws_id: String,
     name: String,
     active: bool,
+    urgent: bool,
 }
 
 pub struct Client {
@@ -91,19 +94,37 @@ impl Client {
 
     /// Workspaces to show, with `id` as the 1-based position `activate` takes.
     pub fn workspaces(&self) -> Vec<Workspace> {
+        let counts = window_counts();
         let snapshot = self.snapshot.lock().unwrap();
         snapshot
             .iter()
             .enumerate()
-            .map(|(i, entry)| Workspace {
-                id: i as u32 + 1,
-                name: entry.name.clone(),
-                active: entry.active,
-                // ext-workspace-v1 doesn't say whether a workspace has windows.
-                occupied: false,
-                window_count: 0,
-                monitor: String::new(),
+            .map(|(i, entry)| {
+                // ext-workspace-v1 doesn't say whether a workspace has windows;
+                // the d77 compositors publish it (see window_counts). Unknown
+                // counts as occupied, so nothing is dimmed without the file.
+                let count = counts.as_ref().and_then(|c| c.get(&entry.ws_id).copied());
+                Workspace {
+                    id: i as u32 + 1,
+                    name: entry.name.clone(),
+                    active: entry.active,
+                    occupied: count != Some(0),
+                    window_count: count.unwrap_or(0),
+                    monitor: String::new(),
+                }
             })
+            .collect()
+    }
+
+    /// Positions (as in `workspaces`) of the workspaces asking for attention.
+    /// helium_wsl's `Workspace` has no urgent field, hence a separate list.
+    pub fn urgent(&self) -> Vec<u32> {
+        let snapshot = self.snapshot.lock().unwrap();
+        snapshot
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.urgent)
+            .map(|(i, _)| i as u32 + 1)
             .collect()
     }
 
@@ -125,6 +146,27 @@ impl Client {
     }
 }
 
+/// Window counts by ext-workspace id, from the file the d77 compositors
+/// (whiplash, wasp, spitfire) keep at
+/// `$XDG_RUNTIME_DIR/d77-workspaces-$WAYLAND_DISPLAY`: one line per workspace,
+/// "<ext-workspace id> <window count>". `None` when there is no such file.
+/// Read on every tick; the file is a few lines and replaced atomically.
+fn window_counts() -> Option<std::collections::HashMap<String, u32>> {
+    let dir = std::env::var("XDG_RUNTIME_DIR").ok()?;
+    let display = std::env::var("WAYLAND_DISPLAY").ok()?;
+    let text = std::fs::read_to_string(format!("{dir}/d77-workspaces-{display}")).ok()?;
+    Some(
+        text.lines()
+            .filter_map(|line| {
+                let mut parts = line.split_whitespace();
+                let id = parts.next()?;
+                let count = parts.next()?.parse().ok()?;
+                Some((id.to_string(), count))
+            })
+            .collect(),
+    )
+}
+
 /// The shared connection, or `None` if the compositor doesn't expose the protocol.
 pub fn client() -> Option<&'static Client> {
     static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
@@ -133,6 +175,7 @@ pub fn client() -> Option<&'static Client> {
 
 struct WorkspaceInfo {
     handle: ExtWorkspaceHandleV1,
+    ws_id: String,
     name: String,
     coordinates: Vec<u32>,
     state: WorkspaceState,
@@ -183,8 +226,10 @@ impl Listener {
             .into_iter()
             .map(|w| Entry {
                 handle: w.handle.clone(),
+                ws_id: w.ws_id.clone(),
                 name: w.name.clone(),
                 active: w.state.contains(WorkspaceState::Active),
+                urgent: w.state.contains(WorkspaceState::Urgent),
             })
             .collect();
     }
@@ -208,6 +253,7 @@ impl Dispatch<ExtWorkspaceManagerV1, ()> for Listener {
             ext_workspace_manager_v1::Event::Workspace { workspace } => {
                 state.workspaces.push(WorkspaceInfo {
                     handle: workspace,
+                    ws_id: String::new(),
                     name: String::new(),
                     coordinates: Vec::new(),
                     state: WorkspaceState::empty(),
@@ -282,6 +328,7 @@ impl Dispatch<ExtWorkspaceHandleV1, ()> for Listener {
             return;
         };
         match event {
+            Event::Id { id } => workspace.ws_id = id,
             Event::Name { name } => workspace.name = name,
             Event::Coordinates { coordinates } => {
                 workspace.coordinates = coordinates
