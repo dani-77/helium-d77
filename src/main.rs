@@ -623,11 +623,19 @@ fn workspaces_value(workspaces: &[Workspace], urgent: &[u32]) -> Value {
 }
 
 fn apply_workspaces(shell: &mut ShellInstance, workspaces: &[Workspace]) {
-    shell.set("Bar", "workspaces", workspaces_value(workspaces, &current_urgent()));
+    shell.set(
+        "Bar",
+        "workspaces",
+        workspaces_value(workspaces, &current_urgent()),
+    );
 }
 
 fn apply_workspaces_ctx(ctx: &mut TickContext, workspaces: &[Workspace]) {
-    ctx.set("Bar", "workspaces", workspaces_value(workspaces, &current_urgent()));
+    ctx.set(
+        "Bar",
+        "workspaces",
+        workspaces_value(workspaces, &current_urgent()),
+    );
 }
 
 /// Positions of the workspaces asking for attention. Only ext-workspace
