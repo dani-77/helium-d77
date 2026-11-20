@@ -40,7 +40,7 @@ fn session_command(action: &str) -> String {
 /// helium-locker is not preferred here yet. Its old layer-shika version lost
 /// the lock ~30ms after activating; it has since been rewritten on Amorphis's
 /// Wayland backend and is being tested. Put it first once it has been
-/// confirmed on niri and Hyprland (see doc/TECHNICAL.md, Locker).
+/// confirmed on real hardware (see doc/TECHNICAL.md, Locker).
 fn lock_command() -> String {
     // The first locker installed, with loginctl lock-session as a generic
     // fallback. if/elif rather than `a && b || c`: a locker exiting with an

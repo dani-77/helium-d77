@@ -329,12 +329,21 @@ Keys: type the password and press Enter. Backspace deletes a character,
 Escape or Ctrl+U clears the field. The field warns when Caps Lock is on.
 
 **Testing phase: not installed by `make install` or the packages yet, and not
-wired into the session menu's Lock action.** It has passed a headless Sway
-test (wrong password refused, correct password unlocks, a second locker is
-refused without breaking the first, two outputs, scale 2). Once it has been
-confirmed on niri and Hyprland, add it to the Makefile's `BINS` and the
-packaging, and put it first in `lock_command()` in
-`src/bin/helium-session.rs`. Install it by hand to test, and keep another way
+wired into the session menu's Lock action.** The old `layer-shika` version
+failed on every compositor tried, spitfire and wasp included. The new one has
+passed:
+
+- headless Sway: wrong password refused, correct password unlocks, a second
+  locker is refused without breaking the first, two outputs, scale 2, and
+  recovery after the locker is killed;
+- spitfire (nested, `--winit`): wrong password refused, correct password
+  unlocks. spitfire itself accepts a second lock request while already
+  locked instead of refusing it, which takes keyboard focus away from the
+  first locker; that's a spitfire bug, not a locker one.
+
+Once it has been confirmed on real hardware (niri, Hyprland, spitfire, wasp),
+add it to the Makefile's `BINS` and the packaging, and put it first in
+`lock_command()` in `src/bin/helium-session.rs`. Install it by hand to test, and keep another way
 into the machine (a TTY) while you do:
 
 ```sh

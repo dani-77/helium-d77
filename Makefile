@@ -10,7 +10,7 @@
 #
 # helium-locker is not installed here yet: it was rewritten on Amorphis's
 # Wayland backend and stays out of `make install` until it has been tested
-# on niri and Hyprland (see doc/TECHNICAL.md, Locker). To test it:
+# on real hardware (see doc/TECHNICAL.md, Locker). To test it:
 #   install -Dm755 target/release/helium-locker $(PREFIX)/bin/helium-locker
 #   install -Dm644 pam.d/helium-locker /etc/pam.d/helium-locker
 
