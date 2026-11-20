@@ -8,19 +8,17 @@
 # staged/packaging installs (e.g. `make install DESTDIR=/tmp/pkg`) and is
 # empty for a normal `sudo make install` onto the running system.
 #
-# helium-locker is not installed here yet: it was rewritten on Amorphis's
-# Wayland backend and stays out of `make install` until it has been tested
-# on real hardware (see doc/TECHNICAL.md, Locker). To test it:
-#   install -Dm755 target/release/helium-locker $(PREFIX)/bin/helium-locker
-#   install -Dm644 pam.d/helium-locker /etc/pam.d/helium-locker
+# helium-locker's PAM file goes to $(DESTDIR)/etc/pam.d, not under PREFIX:
+# PAM only reads /etc/pam.d. Without it the locker refuses to start.
 
 PREFIX  ?= /usr
 DESTDIR ?=
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SHAREDIR := $(DESTDIR)$(PREFIX)/share/helium-d77
+PAMDIR  := $(DESTDIR)/etc/pam.d
 
-BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama
+BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama helium-locker
 
 .PHONY: all build install uninstall clean
 
@@ -33,10 +31,12 @@ install: build
 	install -d $(BINDIR)
 	$(foreach bin,$(BINS),install -Dm755 target/release/$(bin) $(BINDIR)/$(bin);)
 	install -Dm644 assets/d77-logo.svg $(SHAREDIR)/d77-logo.svg
+	install -Dm644 pam.d/helium-locker $(PAMDIR)/helium-locker
 
 uninstall:
 	$(foreach bin,$(BINS),rm -f $(BINDIR)/$(bin);)
 	rm -f $(SHAREDIR)/d77-logo.svg
+	rm -f $(PAMDIR)/helium-locker
 
 clean:
 	cargo clean

@@ -92,8 +92,8 @@ A Lock / Suspend / Reboot / Shutdown / Logout menu, mirroring the action set
 and commands from a quickshell "session menu" widget: `loginctl <action>`
 with a `systemctl <action>` fallback for suspend/reboot/poweroff,
 `loginctl terminate-session "$XDG_SESSION_ID"` for logout (falls back to
-`self` if that variable isn't set). Lock runs the first of `amorphis`,
-`swaylock` and `hyprlock` that's installed, falling back to
+`self` if that variable isn't set). Lock runs the first of `helium-locker`,
+`amorphis`, `swaylock` and `hyprlock` that's installed, falling back to
 `loginctl lock-session` otherwise.
 
 Grabs keyboard focus as soon as it opens. Left/Right move the selection
@@ -328,10 +328,10 @@ handled here:
 Keys: type the password and press Enter. Backspace deletes a character,
 Escape or Ctrl+U clears the field. The field warns when Caps Lock is on.
 
-**Testing phase: not installed by `make install` or the packages yet, and not
-wired into the session menu's Lock action.** The old `layer-shika` version
-failed on every compositor tried, spitfire and wasp included. The new one has
-passed:
+**Tested.** Installed by `make install` and the packages (binary plus
+`/etc/pam.d/helium-locker`), and first in the session menu's Lock action. The
+old `layer-shika` version failed on every compositor tried, spitfire and wasp
+included. The new one has passed:
 
 - headless Sway: wrong password refused, correct password unlocks, a second
   locker is refused without breaking the first, two outputs, scale 2, and
@@ -347,10 +347,8 @@ passed:
   PAM file): wrong password refused with the session still locked, correct
   password unlocks immediately.
 
-Once it has been confirmed on real hardware (niri, Hyprland, spitfire, wasp),
-add it to the Makefile's `BINS` and the packaging, and put it first in
-`lock_command()` in `src/bin/helium-session.rs`. Install it by hand to test, and keep another way
-into the machine (a TTY) while you do:
+When changing it, test by hand with another way into the machine (a TTY)
+open:
 
 ```sh
 cargo build --release --bin helium-locker

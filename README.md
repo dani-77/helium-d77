@@ -36,10 +36,10 @@ feel consistent across all three.
   model — ask it something without opening a terminal.
 - **A session menu** — lock, suspend, reboot, shut down, or log out from one
   place.
-- **Screen locking** from the session menu, through
-  [Amorphis](https://github.com/dani-77/amorphis), `swaylock` or `hyprlock`. The
-  native locker, `helium-locker`, is being tested — see
-  [Known limitations](#known-limitations).
+- **Screen locking** from the session menu with its own locker,
+  `helium-locker`, falling back to
+  [Amorphis](https://github.com/dani-77/amorphis), `swaylock` or `hyprlock` if
+  it isn't installed.
 - **An on-screen display** that briefly pops up when you change the volume or
   power profile.
 
@@ -166,10 +166,6 @@ feature just won't do anything until the dependency is installed.
 
 ## Known limitations
 
-- The native screen locker (`helium-locker`) has been rewritten on Amorphis's
-  Wayland backend and is being tested. It isn't installed or used by the
-  session menu yet; Amorphis, `swaylock` or `hyprlock` are used instead. To try
-  it, see the technical docs.
 - Bluetooth controls aren't included in the bar.
 
 ## Want more detail?
