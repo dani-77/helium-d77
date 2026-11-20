@@ -343,6 +343,9 @@ passed:
 - whiplash on real hardware (Void, PAM through `/etc/pam.d/login`): wrong
   password refused (`AUTH_ERR`) with the session still locked, correct
   password unlocks.
+- niri, Hyprland, spitfire and wasp on real hardware (same machine and
+  PAM file): wrong password refused with the session still locked, correct
+  password unlocks immediately.
 
 Once it has been confirmed on real hardware (niri, Hyprland, spitfire, wasp),
 add it to the Makefile's `BINS` and the packaging, and put it first in
