@@ -38,8 +38,7 @@ package() {
     cd "$pkgname-$pkgver"
 
     # Same binaries as the Makefile's BINS and the Void template: helium-locker
-    # is deliberately left out (upstream niri/layer-shika incompatibility, see
-    # doc/TECHNICAL.md).
+    # is left out while it's being tested (see doc/TECHNICAL.md, Locker).
     for bin in helium-shell helium-launcher helium-session helium-osd \
                helium-wallpaper helium-backdrop helium-ollama; do
         install -Dm755 "target/release/$bin" "$pkgdir/usr/bin/$bin"

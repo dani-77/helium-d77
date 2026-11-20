@@ -20,9 +20,8 @@ repository=d77
 
 # build_style=cargo's default do_install only installs a single binary named
 # ${pkgname}. This crate produces seven -- mirrors the Makefile's BINS, which
-# deliberately leaves out helium-locker (see the README's Locker section for
-# the upstream niri/layer-shika incompatibility that keeps it out of
-# `make install` too).
+# leaves out helium-locker while it's being tested (see doc/TECHNICAL.md,
+# Locker).
 do_install() {
 	vbin target/x86_64-unknown-linux-gnu/release/helium-shell
 	vbin target/x86_64-unknown-linux-gnu/release/helium-launcher

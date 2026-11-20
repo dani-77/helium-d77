@@ -8,11 +8,9 @@
 # staged/packaging installs (e.g. `make install DESTDIR=/tmp/pkg`) and is
 # empty for a normal `sudo make install` onto the running system.
 #
-# helium-locker is intentionally NOT installed here: under niri it's
-# unusable right now (an upstream layer-shika/niri incompatibility cancels
-# the session lock ~30ms after activation — see the README's Locker
-# section). It still builds fine; install it by hand if your compositor
-# doesn't hit that bug:
+# helium-locker is not installed here yet: it was rewritten on Amorphis's
+# Wayland backend and stays out of `make install` until it has been tested
+# on niri and Hyprland (see doc/TECHNICAL.md, Locker). To test it:
 #   install -Dm755 target/release/helium-locker $(PREFIX)/bin/helium-locker
 #   install -Dm644 pam.d/helium-locker /etc/pam.d/helium-locker
 

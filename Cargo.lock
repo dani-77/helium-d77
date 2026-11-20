@@ -1596,8 +1596,11 @@ dependencies = [
  "env_logger",
  "helium-wsl",
  "layer-shika",
+ "libc",
  "pam-client2",
  "serde_json",
+ "slint",
+ "smithay-client-toolkit 0.20.0",
  "tokio",
  "wayland-client",
  "wayland-protocols",
@@ -1662,6 +1665,7 @@ version = "1.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68e76f2b13846ca54bba6b8eb3b5454b26879ad987396d0a2d8abedc31a6c469"
 dependencies = [
+ "bytemuck",
  "calloop 0.14.4",
  "cfg_aliases",
  "drm",
@@ -1670,7 +1674,9 @@ dependencies = [
  "i-slint-common",
  "i-slint-core",
  "i-slint-renderer-femtovg",
+ "i-slint-renderer-software",
  "input",
+ "memmap2",
  "nix 0.31.3",
  "raw-window-handle",
  "xkbcommon 0.9.0",
@@ -1699,11 +1705,25 @@ dependencies = [
  "cfg_aliases",
  "i-slint-backend-linuxkms",
  "i-slint-backend-qt",
+ "i-slint-backend-testing",
  "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",
  "i-slint-renderer-femtovg",
+]
+
+[[package]]
+name = "i-slint-backend-testing"
+version = "1.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521e901e3d47ab829c0ef500c63155776208707cd93259e6a7803ed627fa2786"
+dependencies = [
+ "cfg_aliases",
+ "i-slint-common",
+ "i-slint-core",
+ "i-slint-renderer-software",
+ "vtable",
 ]
 
 [[package]]
@@ -1713,6 +1733,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a27c7e8f53418d3017362465367b6612b6e439a68097d627d1b91c94b885f0a6"
 dependencies = [
  "block2 0.6.2",
+ "bytemuck",
  "cfg-if",
  "cfg_aliases",
  "copypasta",
@@ -1725,6 +1746,8 @@ dependencies = [
  "i-slint-core-macros",
  "i-slint-renderer-femtovg",
  "i-slint-renderer-skia",
+ "i-slint-renderer-software",
+ "imgref",
  "lyon_path",
  "muda",
  "objc2 0.6.4",
@@ -1734,6 +1757,7 @@ dependencies = [
  "objc2-ui-kit 0.3.2",
  "pin-weak",
  "raw-window-handle",
+ "rgb",
  "scoped-tls-hkt",
  "scopeguard",
  "softbuffer",

@@ -294,35 +294,61 @@ A native screen locker, unlike the external lockers the session menu currently
 shells out to: it locks the session itself via the
 `ext-session-lock-v1` Wayland protocol, so the compositor enforces the lock
 rather than a window merely being drawn on top. Shows a clock, date, and
-password field (`ui/lock.slint`), verified against PAM.
+password field (`ui/lock.slint`), verified against PAM. Works with any
+compositor that supports `ext-session-lock-v1` (niri, Hyprland, Sway…), on
+every monitor including ones plugged in while locked, with integer HiDPI
+scaling.
 
-Built directly on `layer-shika`'s `Shell` (not helium-wsl's `Helium` wrapper,
-which doesn't expose session-lock yet — see the comment in `Cargo.toml`).
+**How it's built.** It no longer goes through `layer-shika`. The Wayland side
+is the Amorphis backend (smithay-client-toolkit), and Amorphis's security
+modules are vendored in `src/lock/` (`auth`, `secret`, `state`, `system`).
+`ui/lock.slint` is compiled in at build time and drawn with Slint's software
+renderer straight into `wl_shm` buffers, one Slint window per output. The
+previous `layer-shika` version lost the lock about 30ms after activating
+(`ext_session_lock_v1.finished`) or stayed locked with no way out. That came
+from `layer-shika` creating the lock and its surfaces in one request batch,
+not reporting `finished`, and having no flushed unlock. All three are
+handled here:
 
-**Don't use it for now, and not wired into the session menu's Lock action** —
-`layer-shika`'s session-lock surface (which uses `wp_fractional_scale` +
-`wp_viewporter`) gets keyboard/pointer focus and then the compositor
-immediately cancels the lock via `ext_session_lock_v1.finished()` about 30ms
-later (confirmed with a `WAYLAND_DEBUG=1` trace on niri and reproduced on
-Hyprland — not a bug in this repo's own code). It has also been seen to lock
-the screen with no way to unlock it. The binary and PAM setup below are
-otherwise complete; re-enable the
-`lock_command()` preference in `src/bin/helium-session.rs` once that's fixed
-upstream in `layer-shika`.
+- Keyboards are bound and seen by the compositor *before* the lock is
+  requested, and lock surfaces are only created after a round-trip, so a
+  compositor's deferred focus change can't take keyboard focus away from them.
+- A `finished` from the compositor is never treated as an unlock. The locker
+  exits with an error and the compositor keeps the session locked.
+- On a correct password, `unlock_and_destroy` is round-tripped to the
+  compositor before the process exits.
+- Keys go into an `mlock`ed buffer that is wiped on clear and drop, never into
+  Slint. The UI only gets the number of characters typed, shown as dots. PAM
+  (`auth` + `account`) runs on a worker thread, so a slow PAM module never
+  freezes the screen.
+- It refuses to lock at all if `/etc/pam.d/helium-locker` is missing, if core
+  dumps can't be disabled, or if the user can't be resolved from the passwd
+  database (`$USER` is not trusted).
 
-Requires a PAM service file at `/etc/pam.d/helium-locker` (source in
-`pam.d/helium-locker` in this repo). Without it, PAM fails closed: the lock
-screen comes up but no password will ever be accepted.
+Keys: type the password and press Enter. Backspace deletes a character,
+Escape or Ctrl+U clears the field. The field warns when Caps Lock is on.
 
-**Not installed by `make install`** while the bug above is unresolved (see the
-Makefile's own comment). To work on the locker, install it by hand, and keep
-another way into the machine in case it won't unlock:
+**Testing phase: not installed by `make install` or the packages yet, and not
+wired into the session menu's Lock action.** It has passed a headless Sway
+test (wrong password refused, correct password unlocks, a second locker is
+refused without breaking the first, two outputs, scale 2). Once it has been
+confirmed on niri and Hyprland, add it to the Makefile's `BINS` and the
+packaging, and put it first in `lock_command()` in
+`src/bin/helium-session.rs`. Install it by hand to test, and keep another way
+into the machine (a TTY) while you do:
 
 ```sh
 cargo build --release --bin helium-locker
 sudo install -Dm755 target/release/helium-locker /usr/bin/helium-locker
 sudo install -Dm644 pam.d/helium-locker /etc/pam.d/helium-locker
 ```
+
+If the locker ever dies while locked, the compositor keeps the session locked
+(that is the protocol's guarantee). Switch to a TTY and run `helium-locker`
+again against the graphical session (same user, with `XDG_RUNTIME_DIR` and
+`WAYLAND_DISPLAY` set), if your compositor accepts a new lock client after a
+crash: Sway does, and Hyprland does with `misc:allow_session_lock_restore`
+enabled. Otherwise, kill the compositor.
 
 Bind it directly to a key in your compositor config if you want a dedicated
 lock shortcut:
@@ -405,7 +431,7 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   time for Wayland, fonts, and PAM: on Void these are `wayland-devel`,
   `libxkbcommon-devel`, `fontconfig-devel`, `freetype-devel`, and
   `pam-devel` (needed to build `helium-locker`'s PAM auth even though it
-  isn't installed by `make install` right now — see Locker below; `pam-libs`,
+  isn't installed by `make install` yet — see Locker below; `pam-libs`,
   already pulled in by anything else using PAM on your system, covers it at
   runtime).
 - For `helium-osd`/`helium-backdrop`: same Wayland/layer-shell support the
@@ -417,9 +443,8 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   a specific one at build time — the compositor/backend is only detected
   at runtime.
 - For `helium-locker` (optional, build-and-install-by-hand only — see
-  Locker below): a compositor with `ext-session-lock-v1` support that
-  doesn't hit the niri incompatibility described there, and the PAM service
-  file described under Locker.
+  Locker below): a compositor with `ext-session-lock-v1` support, and the
+  PAM service file described under Locker.
 - A Nerd Font installed as **"Symbols Nerd Font"** (or edit the icon
   codepoints in `ui/bar.slint` to match a different one you have — see
   `fc-list | grep -i nerd`). Regular text uses "Space Grotesk" / "Space Mono".

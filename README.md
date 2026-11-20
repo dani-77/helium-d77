@@ -38,7 +38,8 @@ feel consistent across all three.
   place.
 - **Screen locking** from the session menu, through
   [Amorphis](https://github.com/dani-77/amorphis), `swaylock` or `hyprlock`. The
-  native locker isn't ready to use — see [Known limitations](#known-limitations).
+  native locker, `helium-locker`, is being tested — see
+  [Known limitations](#known-limitations).
 - **An on-screen display** that briefly pops up when you change the volume or
   power profile.
 
@@ -165,10 +166,10 @@ feature just won't do anything until the dependency is installed.
 
 ## Known limitations
 
-- Don't use the native screen locker (`helium-locker`) for now. Because of a
-  bug upstream in `layer-shika`, the compositor can cancel the lock almost
-  immediately, or the screen can stay locked with no way to unlock it. Use
-  Amorphis, `swaylock` or `hyprlock` instead. See the technical docs for details.
+- The native screen locker (`helium-locker`) has been rewritten on Amorphis's
+  Wayland backend and is being tested. It isn't installed or used by the
+  session menu yet; Amorphis, `swaylock` or `hyprlock` are used instead. To try
+  it, see the technical docs.
 - Bluetooth controls aren't included in the bar.
 
 ## Want more detail?

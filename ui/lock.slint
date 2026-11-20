@@ -1,6 +1,12 @@
-// Lock screen for helium-locker. Only ever shown while the compositor's
-// ext-session-lock-v1 surface is active — there is no window chrome, no
-// way to dismiss it besides a correct password.
+// Lock screen for helium-locker. Only ever shown on ext-session-lock-v1
+// surfaces while the compositor holds the session lock — there is no window
+// chrome and no way to dismiss it besides a correct password.
+//
+// This component is purely presentational. Keyboard input never reaches
+// Slint: helium-locker reads keys itself into an mlock'ed, wiped-on-drop
+// password buffer (src/lock/secret.rs) and only tells this view how many
+// characters were typed. The password text itself never exists as a Slint
+// string. One instance is created per output and they are all kept in sync.
 //
 // Palette matches ui/bar.slint: #141414/#0d0d0d backgrounds, #76b900 accent,
 // "Space Grotesk"/"Space Mono" body fonts, "Symbols Nerd Font" icons.
@@ -8,128 +14,110 @@
 export component LockScreen inherits Window {
     background: #0d0d0d;
 
-    in-out property <string> password;
-    in-out property <string> clock_text: "";
-    in-out property <string> date_text: "";
-    in-out property <bool> show_error: false;
-    in-out property <bool> checking: false;
+    // All set from Rust.
+    in property <string> clock_text: "";
+    in property <string> date_text: "";
+    in property <int> password_length: 0;
+    in property <bool> show_error: false;
+    in property <bool> checking: false;
+    in property <bool> caps_lock: false;
 
-    // Implemented in Rust: verifies the password against PAM and returns
-    // whether it was accepted.
-    callback unlock_requested(string) -> bool;
-    // Implemented in Rust: formats the current time/date so the clock
-    // doesn't depend on Slint having any notion of wall-clock time.
-    callback current_time() -> string;
-    callback current_date() -> string;
+    // Cap the dots so a long password can't overflow the field.
+    property <int> max_dots: 20;
 
-    Timer {
-        interval: 1s;
-        running: true;
-        triggered => {
-            root.clock_text = root.current_time();
-            root.date_text = root.current_date();
+    VerticalLayout {
+        alignment: center;
+        // Default cross-axis-alignment is Stretch, which left-anchors any
+        // cell that isn't full-width (like the fixed-320px password box
+        // below) instead of centering it under the clock/date.
+        cross-axis-alignment: center;
+        spacing: 18px;
+
+        Text {
+            text: "\u{F023}";
+            color: #76b900;
+            font-size: 40px;
+            font-family: "Symbols Nerd Font";
+            horizontal-alignment: center;
         }
-    }
 
-    Rectangle {
-        background: #0d0d0d;
+        Text {
+            text: root.clock_text;
+            color: #d4d4d4;
+            font-size: 64px;
+            font-family: "Space Mono";
+            letter-spacing: 2px;
+            horizontal-alignment: center;
+        }
 
-        VerticalLayout {
-            alignment: center;
-            // Default cross-axis-alignment is Stretch, which left-anchors
-            // any cell that isn't full-width (like the fixed-320px password
-            // box below) instead of centering it under the clock/date.
-            cross-axis-alignment: center;
-            spacing: 18px;
+        Text {
+            text: root.date_text;
+            color: #888;
+            font-size: 16px;
+            font-family: "Space Grotesk";
+            horizontal-alignment: center;
+        }
 
-            Text {
-                text: "\u{F023}";
-                color: #76b900;
-                font-size: 40px;
-                font-family: "Symbols Nerd Font";
-                horizontal-alignment: center;
-            }
+        Rectangle { height: 16px; }
 
-            Text {
-                text: root.clock_text;
-                color: #d4d4d4;
-                font-size: 64px;
-                font-family: "Space Mono";
-                letter-spacing: 2px;
-                horizontal-alignment: center;
-            }
+        Rectangle {
+            width: 320px;
+            height: 48px;
+            background: #141414;
+            border-radius: 10px;
+            border-width: 2px;
+            border-color: root.show_error ? #d95c5c : (root.checking ? #888 : #76b900);
 
-            Text {
-                text: root.date_text;
-                color: #888;
-                font-size: 16px;
-                font-family: "Space Grotesk";
-                horizontal-alignment: center;
-            }
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 10px;
 
-            Rectangle { height: 16px; }
+                Text {
+                    text: "\u{F084}";
+                    color: #76b900;
+                    font-size: 15px;
+                    font-family: "Symbols Nerd Font";
+                    vertical-alignment: center;
+                }
 
-            Rectangle {
-                width: 320px;
-                height: 48px;
-                background: #141414;
-                border-radius: 10px;
-                border-width: 2px;
-                border-color: root.show_error ? #d95c5c : (input.has-focus ? #76b900 : #333);
+                if root.password_length == 0: Text {
+                    text: "Password";
+                    color: #555;
+                    font-size: 15px;
+                    font-family: "Space Grotesk";
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
 
-                HorizontalLayout {
-                    padding-left: 16px;
-                    padding-right: 16px;
-                    spacing: 10px;
+                if root.password_length > 0: HorizontalLayout {
+                    alignment: start;
+                    spacing: 6px;
+                    horizontal-stretch: 1;
 
-                    Text {
-                        text: "\u{F084}";
-                        color: #76b900;
-                        font-size: 15px;
-                        font-family: "Symbols Nerd Font";
-                        vertical-alignment: center;
-                    }
-
-                    input := TextInput {
-                        text: root.password;
-                        input-type: InputType.password;
-                        color: #d4d4d4;
-                        font-size: 15px;
-                        font-family: "Space Grotesk";
-                        vertical-alignment: center;
-                        enabled: !root.checking;
-
-                        edited => { root.password = self.text; root.show_error = false; }
-                        accepted => { root.try_unlock(); }
+                    for i in min(root.password_length, root.max_dots): VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: #d4d4d4;
+                        }
                     }
                 }
             }
-
-            Text {
-                text: root.checking ? "Checking…" : (root.show_error ? "Incorrect password" : "");
-                color: root.show_error ? #d95c5c : #888;
-                font-size: 12px;
-                font-family: "Space Grotesk";
-                horizontal-alignment: center;
-            }
         }
-    }
 
-    // Focus the password field the moment the surface appears.
-    forward-focus: input;
-
-    function try_unlock() {
-        if (root.password == "" || root.checking) {
-            return;
-        }
-        root.checking = true;
-        if (root.unlock_requested(root.password)) {
-            // Rust deactivates the session lock on success; nothing left
-            // to reset here.
-        } else {
-            root.password = "";
-            root.show_error = true;
-            root.checking = false;
+        Text {
+            text: root.checking
+                ? "Checking…"
+                : root.show_error
+                    ? "Incorrect password"
+                    : root.caps_lock ? "Caps Lock is on" : "";
+            color: root.show_error ? #d95c5c : (root.caps_lock && !root.checking ? #e0b050 : #888);
+            font-size: 12px;
+            font-family: "Space Grotesk";
+            horizontal-alignment: center;
         }
     }
 }

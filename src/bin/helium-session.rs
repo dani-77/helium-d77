@@ -37,14 +37,10 @@ fn session_command(action: &str) -> String {
 /// Shells out to an external locker rather than the sibling `helium-locker`
 /// binary (native ext-session-lock-v1, see its own doc comment).
 ///
-/// helium-locker is temporarily disabled here: its session-lock surface
-/// (which uses wp_fractional_scale + wp_viewporter) gets keyboard/pointer
-/// focus and then the compositor immediately cancels the lock via
-/// `ext_session_lock_v1.finished()` ~30ms later — confirmed with a
-/// WAYLAND_DEBUG=1 trace on niri, and reproduced the same way on Hyprland,
-/// so it's an upstream layer-shika bug, not a bug in helium-locker.rs/
-/// lock.slint, and not specific to either compositor. Revert to preferring
-/// helium-locker (see git blame) once that's fixed upstream.
+/// helium-locker is not preferred here yet. Its old layer-shika version lost
+/// the lock ~30ms after activating; it has since been rewritten on Amorphis's
+/// Wayland backend and is being tested. Put it first once it has been
+/// confirmed on niri and Hyprland (see doc/TECHNICAL.md, Locker).
 fn lock_command() -> String {
     // The first locker installed, with loginctl lock-session as a generic
     // fallback. if/elif rather than `a && b || c`: a locker exiting with an
