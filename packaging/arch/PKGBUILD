@@ -1,7 +1,7 @@
 # Maintainer: Daniel Azevedo <daniazevedo77@posteo.net>
 
 pkgname=helium-d77
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="Wayland shell built with the Helium shell framework"
 arch=('x86_64')
@@ -20,7 +20,7 @@ optdepends=(
   'pciutils: GPU detection in helium-ollama'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('730741bddb17d6210942f30984030b261695f5527929ca97fc43e4c192335852')
+sha256sums=('69cd869f7e4b9639c011d41c4505333a24fdb9b56e1871a95c1a3ff1e28be350')
 
 prepare() {
     cd "$pkgname-$pkgver"
