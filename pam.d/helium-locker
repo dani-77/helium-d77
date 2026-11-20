@@ -1,10 +1,13 @@
 # PAM configuration file for helium-locker (see /etc/pam.d/login for what
-# "login" includes). Mirrors /etc/pam.d/hyprlock rather than system-auth /
-# sudo's stack: a lock screen only needs to verify the password (`auth`),
-# not open a new session or run account checks.
+# "login" includes).
 #
-# Installed to /etc/pam.d/helium-locker by `make install` (see Makefile).
-# Without this file, PAM fails closed and the lock screen can never be
-# unlocked — see the doc comment in src/bin/helium-locker.rs.
+# helium-locker runs both stages, like Amorphis: `auth` checks the password
+# and `account` rejects a locked or expired account (pam_acct_mgmt). The
+# `account` line is needed for that: without it, what PAM does for the account
+# stage depends on the distribution's fallback ("other") policy.
+#
+# Install to /etc/pam.d/helium-locker. Without this file helium-locker refuses
+# to start rather than locking a session it could never unlock.
 
 auth        include     login
+account     include     login

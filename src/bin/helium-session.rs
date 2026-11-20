@@ -34,22 +34,14 @@ fn session_command(action: &str) -> String {
     format!("loginctl {action} 2>&1 || systemctl {action} 2>&1")
 }
 
-/// Shells out to an external locker rather than the sibling `helium-locker`
-/// binary (native ext-session-lock-v1, see its own doc comment).
-///
-/// helium-locker is temporarily disabled here: its session-lock surface
-/// (which uses wp_fractional_scale + wp_viewporter) gets keyboard/pointer
-/// focus and then the compositor immediately cancels the lock via
-/// `ext_session_lock_v1.finished()` ~30ms later — confirmed with a
-/// WAYLAND_DEBUG=1 trace on niri, and reproduced the same way on Hyprland,
-/// so it's an upstream layer-shika bug, not a bug in helium-locker.rs/
-/// lock.slint, and not specific to either compositor. Revert to preferring
-/// helium-locker (see git blame) once that's fixed upstream.
+/// Prefers the sibling `helium-locker` binary (native ext-session-lock-v1,
+/// see doc/TECHNICAL.md, Locker), then external lockers.
 fn lock_command() -> String {
     // The first locker installed, with loginctl lock-session as a generic
     // fallback. if/elif rather than `a && b || c`: a locker exiting with an
     // error must not fall through and run the next one.
-    "if command -v amorphis >/dev/null 2>&1; then amorphis --backend wayland --effect blur; \
+    "if command -v helium-locker >/dev/null 2>&1; then helium-locker; \
+     elif command -v amorphis >/dev/null 2>&1; then amorphis --backend wayland --effect blur; \
      elif command -v swaylock >/dev/null 2>&1; then swaylock; \
      elif command -v hyprlock >/dev/null 2>&1; then hyprlock; \
      else loginctl lock-session; fi"

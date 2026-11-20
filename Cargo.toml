@@ -16,13 +16,22 @@ tokio = { version = "1", features = ["rt"] }
 # the comment on niri_monitor_width() in src/main.rs.
 serde_json = "1"
 
-# Direct dependency (rather than just helium-wsl's `raw` re-export) so
-# helium-locker can call `Shell::create_session_lock`, which helium-wsl's own
-# `Helium`/`ShellInstance` wrapper doesn't expose yet.
+# Direct dependency (rather than just helium-wsl's `raw` re-export) for the
+# binaries that need layer-shika APIs helium-wsl's `Helium`/`ShellInstance`
+# wrapper doesn't expose (e.g. helium-osd's per-surface resize).
 layer-shika = "0.3"
 # Direct dependencies for src/ext_workspace.rs, already in the tree through
 # layer-shika. `staging` brings ext-workspace-v1, `unstable` brings xdg-output.
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+# PAM authentication for helium-locker (src/lock/auth.rs).
 pam-client2 = "0.5"
+# helium-locker: drives ext-session-lock-v1 directly through
+# smithay-client-toolkit (the same backend Amorphis uses) and renders
+# ui/lock.slint with Slint's software renderer into wl_shm buffers, so the
+# session lock no longer goes through layer-shika. Both are already in the
+# tree via layer-shika/helium-wsl; libc is for the vendored src/lock/system.rs.
+smithay-client-toolkit = "0.20"
+slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "renderer-software", "software-renderer-systemfonts"] }
+libc = "0.2"
 env_logger = "0.11"
