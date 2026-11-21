@@ -204,10 +204,13 @@ export component Bar inherits Window {
         // --- Network / CPU / RAM / battery / volume / session (pinned right) --
         Rectangle {
             x: parent.width - self.width;
-            width: 494px;
+            // As wide as its contents: a fixed 494px stopped fitting once
+            // the battery chip grew to 110px, and the session button, last
+            // in the row, was clipped off the bar.
+            width: right_row.preferred-width;
             height: 100%;
 
-            HorizontalLayout {
+            right_row := HorizontalLayout {
                 padding: 0;
                 spacing: 0;
 
