@@ -1611,7 +1611,7 @@ dependencies = [
 [[package]]
 name = "helium-wsl"
 version = "0.2.3"
-source = "git+https://github.com/zepyxunderscore/helium-wsl.git#a644099dbfaeced656fd154b16755c3a95bcd761"
+source = "git+https://github.com/dani-77/helium-wsl.git?branch=d77#878004fba968bad0a873d889b51d0f26145163b5"
 dependencies = [
  "chrono",
  "helium-wsl-macros",
@@ -1628,7 +1628,7 @@ dependencies = [
 [[package]]
 name = "helium-wsl-macros"
 version = "0.2.3"
-source = "git+https://github.com/zepyxunderscore/helium-wsl.git#a644099dbfaeced656fd154b16755c3a95bcd761"
+source = "git+https://github.com/dani-77/helium-wsl.git?branch=d77#878004fba968bad0a873d889b51d0f26145163b5"
 dependencies = [
  "proc-macro2",
  "quote",
