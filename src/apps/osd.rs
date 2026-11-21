@@ -11,7 +11,7 @@
 //! Built directly on `layer_shika::Shell` (not helium-wsl's `Helium`/
 //! `ShellInstance` wrapper): that wrapper doesn't expose per-surface resize
 //! or direct `AppState` access, both needed here. The surface is kept at
-//! 1x1 while idle and resized up only while showing (`ShellControl::
+//! 2x1 (`HIDDEN_SIZE`) while idle and resized up only while showing (`ShellControl::
 //! surface().resize()`, reachable from a `'static` timer closure since it
 //! doesn't borrow `Shell`), and properties are set through
 //! `AppState::surfaces_by_name` from inside the timer callback itself
@@ -28,6 +28,9 @@ use layer_shika::prelude::*;
 use layer_shika::slint_interpreter::Value;
 
 pub const OSD_WIDTH: u32 = 260;
+/// Size while hidden. Not 1x1: layer-shika takes a requested width of 1 as
+/// "the whole output", which left a 1px-high strip across the screen.
+pub const HIDDEN_SIZE: (u32, u32) = (2, 1);
 pub const OSD_HEIGHT: u32 = 64;
 // Bar margin (10px) + bar height (36px) + a small gap, so the OSD sits below
 // the bar instead of overlapping it: Layer::Overlay ignores the bar's own
@@ -198,7 +201,7 @@ pub fn main() -> Result<()> {
 
     let mut shell = Shell::from_source(include_str!("../../ui/osd.slint"))
         .surface("Osd")
-        .size(1, 1)
+        .size(HIDDEN_SIZE.0, HIDDEN_SIZE.1)
         .anchor(AnchorEdges::empty().with_top().with_right())
         .margin(Margins::new(TOP_MARGIN, SIDE_MARGIN, 0, 0))
         .layer(Layer::Overlay)
@@ -219,7 +222,7 @@ pub fn main() -> Result<()> {
                 osd_surface.resize(OSD_WIDTH, OSD_HEIGHT).ok();
             }
             OsdAction::Hide => {
-                osd_surface.resize(1, 1).ok();
+                osd_surface.resize(HIDDEN_SIZE.0, HIDDEN_SIZE.1).ok();
             }
             OsdAction::Nothing => {}
         }

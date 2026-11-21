@@ -322,7 +322,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sidesteps that upstream bug entirely: each tick is a fresh,
     // self-consistent read.
     let mut prev_cpu = None;
+    let mut bar_width = bar_width;
+    let mut ticks: u32 = 0;
     shell.on_tick(Duration::from_secs(1), move |ctx| {
+        // Follows the monitor's logical width, which changes with the
+        // compositor's scale, every few seconds: the surface keeps the size
+        // it was created with unless resized.
+        ticks = ticks.wrapping_add(1);
+        if ticks % 3 == 0 {
+            let width = primary_monitor_width().saturating_sub(2 * MARGIN);
+            if width > 0 && width != bar_width {
+                bar_width = width;
+                let _ = ctx.control().surface_by_name("Bar").resize(bar_width, 36);
+            }
+        }
         ctx.set("Bar", "bar_width", bar_width as i32);
         if let Some(text) = weather_seed.take() {
             ctx.set("Bar", "weather_text", text);

@@ -6,8 +6,8 @@
 //! connection, GPU (EGL/Mesa) or fontconfig setup: those took most of the
 //! ~200-360 ms the separate launcher and session menu needed to show up.
 //!
-//! Hosted so far: the OSD and the session menu. Each stays at 1x1 with no
-//! keyboard focus while closed and is resized up only while it shows. The
+//! Hosted so far: the OSD and the session menu. Each stays at 2x1
+//! (`HIDDEN_SIZE`) with no keyboard focus while closed and is resized up only while it shows. The
 //! standalone `helium-osd` exits when it finds this daemon running, and
 //! `helium-session` asks it to toggle its menu, so nothing shows twice.
 //!
@@ -22,7 +22,7 @@ use helium_wsl::raw::prelude::{KeyboardInteractivity, ShellControl};
 use helium_wsl::slint_interpreter::Value;
 use helium_wsl::HeliumError;
 
-use crate::apps::osd::{self, OsdAction, OsdState};
+use crate::apps::osd::{self, OsdAction, OsdState, HIDDEN_SIZE};
 use crate::apps::session::{self, Action};
 use crate::ipc;
 
@@ -38,19 +38,19 @@ pub fn source(session_actions: &[Action]) -> String {
     .join("\n")
 }
 
-/// Adds the hosted surfaces to the bar's builder, all at 1x1 with no
+/// Adds the hosted surfaces to the bar's builder, all at `HIDDEN_SIZE` with no
 /// keyboard focus until they show something.
 pub fn surfaces(builder: SurfaceInitializer) -> SurfaceInitializer {
     builder
         .surface("Osd")
-        .size(1, 1)
+        .size(HIDDEN_SIZE.0, HIDDEN_SIZE.1)
         .anchor((AnchorEdge::Top, AnchorEdge::Right))
         .margin(osd::TOP_MARGIN, osd::SIDE_MARGIN, 0, 0)
         .exclusive_zone(0)
         .layer(Layer::Overlay)
         .keyboard(KeyboardMode::None)
         .surface("SessionMenu")
-        .size(1, 1)
+        .size(HIDDEN_SIZE.0, HIDDEN_SIZE.1)
         .anchor((AnchorEdge::Top, AnchorEdge::Right))
         .margin(session::TOP_MARGIN, session::SIDE_MARGIN, 0, 0)
         .exclusive_zone(0)
@@ -78,7 +78,7 @@ impl Panel {
     fn close(&self, control: &ShellControl) {
         let handle = control.surface_by_name(self.surface);
         let _ = handle.set_keyboard_interactivity(KeyboardInteractivity::None);
-        let _ = handle.resize(1, 1);
+        let _ = handle.resize(HIDDEN_SIZE.0, HIDDEN_SIZE.1);
         self.open.set(false);
     }
 }
@@ -98,7 +98,10 @@ pub fn attach(shell: &mut ShellInstance, session_actions: Rc<Vec<Action>>) -> Re
                 .resize(osd::OSD_WIDTH, osd::OSD_HEIGHT);
         }
         OsdAction::Hide => {
-            let _ = ctx.control().surface_by_name("Osd").resize(1, 1);
+            let _ = ctx
+                .control()
+                .surface_by_name("Osd")
+                .resize(HIDDEN_SIZE.0, HIDDEN_SIZE.1);
         }
         OsdAction::Nothing => {}
     })?;
