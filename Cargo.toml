@@ -35,3 +35,13 @@ smithay-client-toolkit = "0.20"
 slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "renderer-software", "software-renderer-systemfonts"] }
 libc = "0.2"
 env_logger = "0.11"
+
+# Smaller binaries: every helium-* binary carries its own copy of Slint,
+# helium-wsl, layer-shika, tokio and zbus, so size dominates. Measured on
+# 0.4.0: 204 MB -> 139 MB for the eight binaries, at the cost of a slower
+# release build (about 5 minutes on 16 cores).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+strip = true

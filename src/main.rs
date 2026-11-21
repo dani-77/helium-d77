@@ -410,10 +410,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Spawns another binary installed alongside this one (found via
-/// `current_exe()`'s directory), so it works both in `target/debug` during
-/// development and once installed system-wide (e.g. `/usr/bin`), as long as
-/// the sibling binary was installed to the same directory.
+/// Spawns `cmd` without blocking and reaps it from a short-lived thread once
+/// it exits. helium-shell lives for the whole session, so a dropped `Child`
+/// would stay a zombie until the shell itself exits.
+fn spawn_reaped(cmd: &mut std::process::Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+}
+
+/// Opens the shared Eww system monitor (`d77-monitor <mode>`), preferring the
+/// installed copy and falling back to the one in the source tree during
+/// development.
 fn spawn_monitor(mode: &str) {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("monitor/d77-monitor");
     let installed = std::path::Path::new("/usr/share/helium-d77/monitor/d77-monitor");
@@ -422,23 +432,25 @@ fn spawn_monitor(mode: &str) {
     } else {
         source.as_path()
     };
-    let _ = std::process::Command::new(script).arg(mode).spawn();
+    spawn_reaped(std::process::Command::new(script).arg(mode));
 }
 
+/// Spawns another binary installed alongside this one (found via
+/// `current_exe()`'s directory), so it works both in `target/debug` during
+/// development and once installed system-wide (e.g. `/usr/bin`), as long as
+/// the sibling binary was installed to the same directory.
 fn spawn_sibling(name: &str) {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
     let Some(dir) = exe.parent() else { return };
-    let _ = std::process::Command::new(dir.join(name)).spawn();
+    spawn_reaped(&mut std::process::Command::new(dir.join(name)));
 }
 
 /// Toggles Master mute via `amixer`, matching the control name `sysinfo::volume()`
 /// already reads and the mute-toggle approach quickshell-d77/fabric-d77 use.
 fn toggle_mute() {
-    let _ = std::process::Command::new("amixer")
-        .args(["set", "Master", "toggle"])
-        .spawn();
+    spawn_reaped(std::process::Command::new("amixer").args(["set", "Master", "toggle"]));
 }
 
 /// "36%" or, with a time estimate available, "36% (1h54m)". Shown inline
@@ -494,9 +506,7 @@ fn cycle_power_profile() {
         .and_then(|c| POWER_PROFILES.iter().position(|p| *p == c))
         .unwrap_or(POWER_PROFILES.len() - 1);
     let next = POWER_PROFILES[(idx + 1) % POWER_PROFILES.len()];
-    let _ = std::process::Command::new("powerprofilesctl")
-        .args(["set", next])
-        .spawn();
+    spawn_reaped(std::process::Command::new("powerprofilesctl").args(["set", next]));
 }
 
 /// Opens a floating terminal running `nmtui`, the same way quickshell-d77 and
@@ -520,10 +530,7 @@ fn launch_nmtui() {
         .map(|(bin, cmd)| format!("command -v {bin} >/dev/null 2>&1 && exec setsid {cmd}"))
         .collect::<Vec<_>>()
         .join(" || ");
-    let _ = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(script)
-        .spawn();
+    spawn_reaped(std::process::Command::new("sh").arg("-c").arg(script));
 }
 
 /// Sends a command to Hyprland's control socket and returns its reply.
