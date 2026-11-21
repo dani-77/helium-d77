@@ -329,7 +329,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         // compositor's scale, every few seconds: the surface keeps the size
         // it was created with unless resized.
         ticks = ticks.wrapping_add(1);
-        if ticks % 3 == 0 {
+        if ticks.is_multiple_of(3) {
             let width = primary_monitor_width().saturating_sub(2 * MARGIN);
             if width > 0 && width != bar_width {
                 bar_width = width;
