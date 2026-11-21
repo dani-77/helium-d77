@@ -20,7 +20,7 @@ optdepends=(
   'pciutils: GPU detection in helium-ollama'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('2b72337ac8e6971c4929fe6c070435c18dd23f42a387322938f055a30d87041d')
 
 prepare() {
     cd "$pkgname-$pkgver"

@@ -13,7 +13,7 @@ maintainer="Daniel Azevedo <daniazevedo77@posteo.net>"
 license="MIT"
 homepage="https://github.com/dani-77/helium-d77"
 distfiles="https://github.com/dani-77/helium-d77/archive/refs/tags/${version}.tar.gz"
-checksum=SKIP
+checksum=2b72337ac8e6971c4929fe6c070435c18dd23f42a387322938f055a30d87041d
 repository=d77
 conf_files="/etc/pam.d/helium-locker"
 
