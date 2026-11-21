@@ -10,6 +10,7 @@
 //! list: the workspaces of the first output.
 
 use helium_wsl::compositors::Workspace;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use wayland_client::backend::ObjectId;
 use wayland_client::globals::{registry_queue_init, GlobalListContents};
@@ -39,7 +40,9 @@ pub struct Client {
     connection: Connection,
     manager: ExtWorkspaceManagerV1,
     snapshot: Arc<Mutex<Vec<Entry>>>,
-    first_output_width: Option<u32>,
+    /// Shared with the listener thread, which keeps it current as the
+    /// compositor's scale changes. 0 until xdg-output reports a size.
+    first_output_width: Arc<AtomicU32>,
 }
 
 impl Client {
@@ -50,6 +53,7 @@ impl Client {
 
         let mut listener = Listener::default();
         let snapshot = listener.snapshot.clone();
+        let first_output_width = listener.first_output_width.clone();
 
         let xdg_manager: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
 
@@ -77,7 +81,6 @@ impl Client {
         // xdg_output and workspace handles created by the first roundtrip send
         // their initial state during the second.
         queue.roundtrip(&mut listener).ok()?;
-        let first_output_width = listener.first_output_width;
 
         std::thread::Builder::new()
             .name("ext-workspace".into())
@@ -142,7 +145,10 @@ impl Client {
 
     /// Logical (scale-adjusted) width of the first output.
     pub fn first_output_width(&self) -> Option<u32> {
-        self.first_output_width
+        match self.first_output_width.load(Ordering::Relaxed) {
+            0 => None,
+            width => Some(width),
+        }
     }
 }
 
@@ -191,7 +197,7 @@ struct GroupInfo {
 struct Listener {
     snapshot: Arc<Mutex<Vec<Entry>>>,
     first_output: Option<ObjectId>,
-    first_output_width: Option<u32>,
+    first_output_width: Arc<AtomicU32>,
     groups: Vec<(ObjectId, GroupInfo)>,
     workspaces: Vec<WorkspaceInfo>,
 }
@@ -356,7 +362,9 @@ impl Dispatch<ZxdgOutputV1, ()> for Listener {
         _: &QueueHandle<Self>,
     ) {
         if let zxdg_output_v1::Event::LogicalSize { width, .. } = event {
-            state.first_output_width = u32::try_from(width).ok();
+            if let Ok(width) = u32::try_from(width) {
+                state.first_output_width.store(width, Ordering::Relaxed);
+            }
         }
     }
 }
