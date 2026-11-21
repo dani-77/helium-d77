@@ -288,15 +288,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Clicking the apps icon / power icon spawns the sibling launcher /
-    // session-menu binaries (spawn-on-demand, like rofi — see their doc
-    // comments for why they're separate processes instead of toggled panels
-    // inside this one).
+    // The launcher and the session menu are helium-shell's own surfaces
+    // (src/daemon.rs), toggled through its IPC socket like `helium launcher`
+    // and `helium session` do. Without the socket, the standalone ones.
     shell.on_signal("Bar", "launcher_clicked", |_| {
-        spawn_sibling("helium-launcher")
+        if crate::ipc::send("launcher").is_err() {
+            spawn_sibling("helium-launcher");
+        }
     });
-    // The session menu is one of helium-shell's own surfaces, toggled
-    // through its IPC socket like `helium session` does.
     shell.on_signal("Bar", "session_clicked", |_| {
         if crate::ipc::send("session").is_err() {
             spawn_sibling("helium-session");
