@@ -27,7 +27,7 @@
 //!
 //! `resize_backdrop_to_outputs()` below still explicitly queries each
 //! monitor's real pixel resolution and resizes each output's instance to
-//! match, the same way the bar's `primary_monitor_width()` in src/main.rs
+//! match, the same way the bar's `primary_monitor_width()` in src/apps/shell.rs
 //! does (Hyprland/niri/Sway each have their own query — `helium_wsl::
 //! compositors` doesn't cover Sway at all and has a known bug for niri,
 //! see that function's doc comment) — now redundant with the anchor-based
@@ -112,7 +112,7 @@ fn compositor_monitors() -> HashMap<String, (u32, u32)> {
 }
 
 /// Shells out to `hyprctl -j monitors` rather than talking to Hyprland's
-/// socket directly (unlike `hypr_command()` in src/main.rs, which is on a
+/// socket directly (unlike `hypr_command()` in src/apps/shell.rs, which is on a
 /// per-second timer and so avoids the subprocess overhead) — this only
 /// runs a handful of times right at startup, where simplicity wins.
 fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
@@ -131,7 +131,7 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
             // hyprctl reports physical mode width/height; layer-shell
             // surfaces size themselves in logical (scale-adjusted)
             // coordinates (same reasoning as primary_monitor_width() in
-            // src/main.rs), so divide by "scale" here too — otherwise a
+            // src/apps/shell.rs), so divide by "scale" here too — otherwise a
             // monitor with scale != 1.0 gets resize()'d larger than its
             // logical size and Hyprland renders it offset/clipped.
             let width = m.get("width")?.as_u64()? as f64;
@@ -153,10 +153,9 @@ fn hyprland_monitors() -> HashMap<String, (u32, u32)> {
 }
 
 /// Same raw i3-ipc `GET_OUTPUTS` query as `sway_command()`/
-/// `sway_monitor_width()` in src/main.rs, duplicated here rather than
-/// shared — binaries under src/bin/ don't share modules with src/main.rs
-/// in this project (see helium-session/helium-locker/helium-osd for the
-/// same pattern) — extended to return every output's real size, not just
+/// `sway_monitor_width()` in src/apps/shell.rs, duplicated here rather than
+/// shared — the applets were separate binaries that couldn't share modules
+/// (see helium-session/helium-locker/helium-osd for the same pattern) — extended to return every output's real size, not just
 /// the focused one.
 fn sway_monitors() -> HashMap<String, (u32, u32)> {
     const GET_OUTPUTS: u32 = 3;
@@ -202,7 +201,7 @@ fn sway_command(msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Same raw JSON-over-socket `Outputs` query as `niri_command()`/
-/// `niri_monitor_width()` in src/main.rs, duplicated here for the same
+/// `niri_monitor_width()` in src/apps/shell.rs, duplicated here for the same
 /// reason `sway_monitors()` above duplicates its Sway counterpart —
 /// extended to return every output keyed by its own connector name
 /// (the JSON object's key) instead of bailing unless there's exactly one.
@@ -299,7 +298,7 @@ export component Backdrop inherits Window {
 const RESIZE_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const RESIZE_MAX_ATTEMPTS: u32 = 6;
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let mut shell = Shell::from_source(SOURCE)
         .surface("Backdrop")
         .anchor(AnchorEdges::all())

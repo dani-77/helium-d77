@@ -1,668 +1,176 @@
+//! `helium`: every helium-d77 program in one binary.
+//!
+//! The programs used to be eight separate binaries, each carrying its own copy
+//! of Slint, helium-wsl, layer-shika, tokio and zbus (over 90% of each one).
+//! They are now applets of this binary, chosen either by subcommand
+//! (`helium launcher`) or, busybox style, by the name it was started as: the
+//! packages install `helium-shell`, `helium-launcher`, ... as symlinks to
+//! `helium`, so compositor configs, kantele and process lookups by name keep
+//! working unchanged.
+//!
+//! Each applet still runs in its own process, exactly as before.
+
+mod apps;
 mod ext_workspace;
 mod network;
 mod sysinfo;
 mod upower;
 mod weather;
 
-use helium_wsl::compositors::{self, Workspace};
-use helium_wsl::prelude::*;
-use helium_wsl::slint::{ModelRc, VecModel};
-use helium_wsl::slint_interpreter;
-use helium_wsl::slint_interpreter::{Struct, Value};
-use std::io::Write;
-use std::os::unix::net::UnixStream;
-use std::time::Duration;
+use std::fmt::Debug;
+use std::path::Path;
+use std::process::ExitCode;
 
-const MARGIN: u32 = 10;
-const FALLBACK_MONITOR_WIDTH: u32 = 1366;
+/// Applet names, as subcommands. The symlinks are these with a `helium-`
+/// prefix.
+pub const APPLETS: [&str; 8] = [
+    "shell",
+    "launcher",
+    "session",
+    "osd",
+    "wallpaper",
+    "backdrop",
+    "ollama",
+    "locker",
+];
 
-/// Width of the primary monitor, so the bar's size is derived from the
-/// actual screen instead of a value hardcoded for one machine.
-///
-/// This matters beyond cosmetics: Hyprland doesn't cleanly reconcile a
-/// requested layer-surface width that's *larger* than the monitor with
-/// `Top+Left+Right` anchoring — instead of clamping, it can offset the
-/// surface so part of it renders off-screen. Deriving the width from the
-/// real monitor guarantees the requested size and the anchor-stretched size
-/// always agree, on any screen.
-///
-/// Tries `niri_monitor_width()`, then `sway_monitor_width()`, then
-/// `mango_monitor_width()` — see their doc comments for why none of them can
-/// go through `helium_wsl` — falling back to `compositors::detect()`
-/// (Hyprland) before finally giving up on the hardcoded default.
-/// `helium_wsl::compositors::detect()` doesn't know about Sway or mangowc at
-/// all (only Hyprland/niri), so without those dedicated queries every
-/// Sway/mangowc machine would silently hit the same fallback the niri bug
-/// above used to cause — visible there as a *centered* bar with equal gaps
-/// on both sides rather than niri's flush-left one, because wlroots follows
-/// the wlr-layer-shell spec literally: an undersized surface anchored to
-/// both opposing edges gets centered on that axis, where niri just anchors
-/// it to the one edge and leaves the rest of the row empty.
-fn primary_monitor_width() -> u32 {
-    niri_monitor_width()
-        .or_else(sway_monitor_width)
-        .or_else(mango_monitor_width)
-        .or_else(|| {
-            compositors::detect().ok().and_then(|c| {
-                let monitors = c.monitors();
-                monitors
-                    .iter()
-                    .find(|m| m.primary)
-                    .or_else(|| monitors.first())
-                    // `m.width` is the physical mode width; layer-shell
-                    // surfaces are sized in logical (scale-adjusted)
-                    // coordinates, same as niri_monitor_width()'s
-                    // `logical.width` and sway_monitor_width()'s
-                    // `rect.width` above — without dividing by scale here,
-                    // any Hyprland monitor with scale != 1.0 gets a bar
-                    // request too wide for the screen, which Hyprland
-                    // doesn't clamp (see this function's own doc comment).
-                    .map(|m| (m.width as f64 / m.scale).round() as u32)
-            })
-        })
-        // Compositors with none of the IPCs above (wasp, spitfire): xdg-output
-        // also reports logical width. On several outputs this is the first one.
-        .or_else(|| ext_workspace::client()?.first_output_width())
-        .unwrap_or(FALLBACK_MONITOR_WIDTH)
+/// What `helium start` launches: the programs that run for the whole session.
+const SESSION_APPLETS: [&str; 3] = ["shell", "osd", "backdrop"];
+
+fn usage() -> String {
+    format!(
+        "helium {}\n\nUsage: helium start\n       helium <{}> [args...]\n\n\
+         `helium start` launches the bar, the OSD and the backdrop, each in its own\n\
+         process. Each applet can also be started through its helium-<applet> symlink.",
+        env!("CARGO_PKG_VERSION"),
+        APPLETS.join("|")
+    )
 }
 
-/// Reads the focused/primary output's logical width straight from niri's
-/// `Outputs` IPC, bypassing `helium_wsl::compositors::niri::Niri::monitors()`
-/// entirely: that backend deserializes each output's `current_mode` as an
-/// inline `{width, height}` object, but niri actually reports it as an
-/// integer *index* into the output's own `modes` array (confirmed against a
-/// live niri instance — see the raw `Outputs` reply). The type mismatch
-/// makes `serde_json::from_value::<NiriOutput>` fail for every real niri
-/// output, so `monitors()` silently returns an empty `Vec` and
-/// `primary_monitor_width()` fell through to `FALLBACK_MONITOR_WIDTH` on
-/// every niri machine, regardless of actual screen size — the bar rendered
-/// ~30% too narrow with the rest of the row left empty. `logical.width` here
-/// is already scale-adjusted, which is what a layer-shell surface needs
-/// anyway (resolving `modes[current_mode].width` would give physical
-/// pixels instead).
-///
-/// Returns `None` (rather than picking arbitrarily) whenever there's more
-/// than one output, since niri's `Outputs` reply has no "primary" concept
-/// to disambiguate — that case falls back to `compositors::detect()` above,
-/// same as before this fix existed.
-fn niri_monitor_width() -> Option<u32> {
-    let reply = niri_command(r#"{"Outputs":null}"#)?;
-    let value: serde_json::Value = serde_json::from_str(reply.trim()).ok()?;
-    let outputs = value.get("Ok")?.get("Outputs")?.as_object()?;
-    if outputs.len() != 1 {
-        return None;
-    }
-    outputs
-        .values()
-        .find_map(|o| o.get("logical")?.get("width")?.as_u64())
-        .map(|w| w as u32)
-}
-
-/// Reads the focused output's logical width from Sway over its native
-/// i3-ipc socket (`$SWAYSOCK`) — `helium_wsl::compositors::detect()` has no
-/// Sway backend whatsoever, Hyprland or niri only, so this is additive
-/// rather than a workaround for a broken upstream parse like
-/// `niri_monitor_width()` above. Speaks the protocol directly (magic bytes +
-/// native-endian length/type header, per Sway's own `IPC` documentation)
-/// rather than shelling out to `swaymsg`, the same reasoning `hypr_command`/
-/// `niri_command` below already use for their compositors.
-fn sway_monitor_width() -> Option<u32> {
-    const GET_OUTPUTS: u32 = 3;
-    let body = sway_command(GET_OUTPUTS, b"")?;
-    let outputs: serde_json::Value = serde_json::from_slice(&body).ok()?;
-    let outputs = outputs.as_array()?;
-    outputs
-        .iter()
-        .find(|o| o.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-        .or_else(|| {
-            outputs
-                .iter()
-                .find(|o| o.get("active").and_then(|v| v.as_bool()).unwrap_or(false))
-        })
-        .or_else(|| outputs.first())
-        .and_then(|o| o.get("rect")?.get("width")?.as_u64())
-        .map(|w| w as u32)
-}
-
-/// Reads the active output's logical width from mangowc's IPC — a
-/// newline-terminated text command (`get all-monitors`) sent over the Unix
-/// socket at `$MANGO_INSTANCE_SIGNATURE`, replying with one JSON line (per
-/// mango's own `mmsg` client source and `docs/ipc.md`).
-/// `helium_wsl::compositors::detect()` has no mango backend at all, so this
-/// is additive rather than a workaround for a broken upstream parse, same as
-/// `sway_monitor_width()` above. `width` in the reply is already
-/// logical/scale-adjusted — confirmed against a live instance: a
-/// 1920px-wide physical output at scale 1.25 reports `width: 1536` — which
-/// is what a layer-shell surface needs, same as `logical.width`/`rect.width`
-/// above.
-///
-/// Returns `None` for anything but exactly one *active* monitor, since
-/// mango's monitor list has no "primary"/"focused" flag to disambiguate —
-/// same reasoning as `niri_monitor_width()`'s single-output requirement.
-fn mango_monitor_width() -> Option<u32> {
-    let reply = mango_command("get all-monitors")?;
-    let value: serde_json::Value = serde_json::from_str(reply.trim()).ok()?;
-    let monitors: Vec<&serde_json::Value> = value
-        .get("monitors")?
-        .as_array()?
-        .iter()
-        .filter(|m| m.get("active").and_then(|v| v.as_bool()).unwrap_or(false))
-        .collect();
-    if monitors.len() != 1 {
-        return None;
-    }
-    monitors[0].get("width")?.as_u64().map(|w| w as u32)
-}
-
-/// Sends one `mmsg`-protocol request to mango's control socket and returns
-/// the first reply line — same shape as `niri_command` above (newline-framed
-/// request, single-line JSON reply), just a different env var and plain-text
-/// command instead of a JSON one.
-fn mango_command(req: &str) -> Option<String> {
-    let path = std::env::var("MANGO_INSTANCE_SIGNATURE").ok()?;
-    let mut stream = UnixStream::connect(&path).ok()?;
-    stream.write_all(req.as_bytes()).ok()?;
-    stream.write_all(b"\n").ok()?;
-    let mut reader = std::io::BufReader::new(stream);
-    let mut line = String::new();
-    std::io::BufRead::read_line(&mut reader, &mut line).ok()?;
-    Some(line)
-}
-
-/// Fetches workspace state directly from Sway's `GET_WORKSPACES` IPC message
-/// (msg type 1), the same way `sway_monitor_width()` above bypasses
-/// `helium_wsl::compositors::detect()` entirely (it has no Sway backend to
-/// bypass a bug in — Sway just isn't recognized at all).
-///
-/// `representation` is `null` exactly when a workspace has no windows (per
-/// Sway's own IPC docs), so it doubles as the `occupied` signal without a
-/// second `GET_TREE` round trip — `GET_WORKSPACES` doesn't populate `nodes`/
-/// `floating_nodes` on the workspace objects it returns, so those can't be
-/// used for this the way niri's `active_window_id` is.
-///
-/// Workspaces without a positive `num` (Sway assigns -1 to purely
-/// named workspaces with no numeric prefix) are skipped rather than forced
-/// into `Workspace::id: u32`, since click-to-switch here dispatches
-/// `workspace number N` and that command only makes sense for numbered
-/// workspaces anyway.
-fn sway_workspaces() -> Vec<Workspace> {
-    const GET_WORKSPACES: u32 = 1;
-    let Some(body) = sway_command(GET_WORKSPACES, b"") else {
-        return vec![];
+/// Whether a process named `name` (its `comm`, as `pgrep -x` sees it) is
+/// already running for this user.
+fn is_running(name: &str) -> bool {
+    let uid = unsafe { libc::getuid() };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
     };
-    let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return vec![];
-    };
-    let Some(items) = raw.as_array() else {
-        return vec![];
-    };
-    items
-        .iter()
-        .filter_map(|w| {
-            let num = w.get("num")?.as_i64()?;
-            if num < 0 {
-                return None;
-            }
-            let name = w.get("name")?.as_str()?.to_string();
-            let active = w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false);
-            let occupied = !w.get("representation").map(|v| v.is_null()).unwrap_or(true);
-            let monitor = w
-                .get("output")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
-            Some(Workspace {
-                id: num as u32,
-                name,
-                active,
-                occupied,
-                window_count: occupied as u32,
-                monitor,
-            })
-        })
-        .collect()
+    entries.flatten().any(|entry| {
+        use std::os::unix::fs::MetadataExt;
+        let path = entry.path();
+        entry.metadata().is_ok_and(|m| m.uid() == uid)
+            && std::fs::read_to_string(path.join("comm")).is_ok_and(|comm| comm.trim_end() == name)
+    })
 }
 
-/// Sends one i3-ipc request to Sway's control socket and returns the raw
-/// reply payload. Header format is 6 magic bytes (`b"i3-ipc"`) + a 4-byte
-/// payload length + a 4-byte message type, both in the machine's native
-/// byte order (client and server always run on the same host, so the
-/// protocol doesn't bother specifying one) — same shape for the reply,
-/// immediately followed by `length` bytes of JSON.
-fn sway_command(msg_type: u32, payload: &[u8]) -> Option<Vec<u8>> {
-    let sock_path = std::env::var("SWAYSOCK").ok()?;
-    let mut stream = UnixStream::connect(&sock_path).ok()?;
-
-    let mut request = Vec::with_capacity(14 + payload.len());
-    request.extend_from_slice(b"i3-ipc");
-    request.extend_from_slice(&(payload.len() as u32).to_ne_bytes());
-    request.extend_from_slice(&msg_type.to_ne_bytes());
-    request.extend_from_slice(payload);
-    stream.write_all(&request).ok()?;
-
-    let mut header = [0u8; 14];
-    std::io::Read::read_exact(&mut stream, &mut header).ok()?;
-    if &header[0..6] != b"i3-ipc" {
-        return None;
-    }
-    let len = u32::from_ne_bytes(header[6..10].try_into().ok()?) as usize;
-    let mut body = vec![0u8; len];
-    std::io::Read::read_exact(&mut stream, &mut body).ok()?;
-    Some(body)
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bar_width = primary_monitor_width() - 2 * MARGIN;
-
-    // Embedded at compile time rather than loaded from "ui/bar.slint" at
-    // runtime: a relative path only resolves when launched from the project
-    // root, which breaks the moment the binary is installed system-wide
-    // (e.g. /usr/bin/helium-shell) and run from anywhere else, or autostarted
-    // by the compositor with an unrelated working directory.
-    let mut shell = Helium::from_source(include_str!("../ui/bar.slint"))
-        .surface("Bar")
-        .size(bar_width, 36)
-        .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
-        .margin(MARGIN as i32, MARGIN as i32, 0, MARGIN as i32)
-        // Hyprland adds the surface's own top margin on top of this value,
-        // so the exclusive zone only needs to cover the bar's height itself.
-        .exclusive_zone(36)
-        .layer(Layer::Top)
-        .build()?;
-
-    // The Slint component's own width must match the surface size above —
-    // set once here rather than hardcoded in ui/bar.slint.
-    shell.set("Bar", "bar_width", bar_width as i32);
-
-    // Seed initial workspace state so the bar isn't blank before the first tick.
-    apply_workspaces(&mut shell, &current_workspaces());
-    // `shell.set` only reaches the first monitor's bar; the 1 s tick below
-    // repeats these seeds through `ctx.set`, which reaches every bar.
-    let mut weather_seed = weather::status().map(|w| format!("{}  {}", w.condition, w.temperature));
-    if let Some(text) = &weather_seed {
-        shell.set("Bar", "weather_text", text.clone());
-    }
-
-    // Clicking a workspace pill dispatches a real workspace switch.
-    shell.on_signal("Bar", "workspace_clicked", |args| {
-        if let Some(slint_interpreter::Value::Number(n)) = args.first() {
-            switch_workspace(*n as i32);
-        }
-    });
-
-    // Clicking the apps icon / power icon spawns the sibling launcher /
-    // session-menu binaries (spawn-on-demand, like rofi — see their doc
-    // comments for why they're separate processes instead of toggled panels
-    // inside this one).
-    shell.on_signal("Bar", "launcher_clicked", |_| {
-        spawn_sibling("helium-launcher")
-    });
-    shell.on_signal("Bar", "session_clicked", |_| {
-        spawn_sibling("helium-session")
-    });
-    shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
-    shell.on_signal("Bar", "cpu_clicked", |_| spawn_monitor("cpu"));
-    shell.on_signal("Bar", "memory_clicked", |_| spawn_monitor("memory"));
-    shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());
-    shell.on_signal("Bar", "battery_clicked", |_| cycle_power_profile());
-
-    // Clock + workspace polling, once a second.
-    //
-    // Workspace state is polled rather than pushed via
-    // `on_compositor_event`/`CompositorEvent::WorkspaceChanged`: helium-wsl's
-    // Hyprland backend resolves that event by re-querying `j/workspaces` +
-    // `j/activeworkspace` over two separate synchronous IPC round trips
-    // instead of using the workspace id already embedded in the raw
-    // `workspace>>N` event line. Under fast workspace churn those two
-    // snapshots can disagree (no workspace comes back marked `active`), and
-    // `poll_event()` then silently drops the event, leaving the bar's
-    // workspace pills desynced. Polling `compositor.workspaces()` here
-    // sidesteps that upstream bug entirely: each tick is a fresh,
-    // self-consistent read.
-    let mut prev_cpu = None;
-    shell.on_tick(Duration::from_secs(1), move |ctx| {
-        ctx.set("Bar", "bar_width", bar_width as i32);
-        if let Some(text) = weather_seed.take() {
-            ctx.set("Bar", "weather_text", text);
-        }
-        ctx.set(
-            "Bar",
-            "clock_text",
-            helium_wsl::services::time::formatted("%a %d %b  %H:%M:%S"),
-        );
-        apply_workspaces_ctx(ctx, &current_workspaces());
-        if let Some(pct) = sysinfo::cpu_usage_percent(&mut prev_cpu) {
-            ctx.set("Bar", "cpu_text", format!("{pct}%"));
-        }
-    })?;
-
-    // Network + RAM + battery + volume: cheap local reads except network
-    // (a blocking D-Bus round trip), all on the same slower timer.
-    //
-    // Network uses our own `network::status()` rather than
-    // `helium_wsl::services::network::status()`: the upstream function
-    // deserializes NetworkManager's `GetDevices` reply (D-Bus signature `ao`)
-    // as `Vec<OwnedValue>`, but it's a plain array of object paths, not
-    // variants — zbus rejects that with "Signature mismatch: got 'ao',
-    // expected 'av'" and the call always fails. See src/network.rs.
-    shell.on_tick(Duration::from_secs(5), |ctx| {
-        if let Ok(info) = network::status() {
-            let label = match (&info.ssid, info.signal_strength) {
-                (Some(s), Some(strength)) => format!("{s}  {strength}%"),
-                (Some(s), None) => s.clone(),
-                (None, _) if info.connected => "connected".to_string(),
-                (None, _) => "Disconnected".to_string(),
-            };
-            let icon = if info.wired {
-                "\u{f0200}"
-            } else if info.connected {
-                "\u{f1eb}"
-            } else {
-                "\u{f092d}"
-            };
-            ctx.set("Bar", "net_icon", icon);
-            ctx.set("Bar", "net_text", label);
-            ctx.set("Bar", "net_connected", info.connected);
-        }
-
-        if let Some(pct) = sysinfo::ram_usage_percent() {
-            ctx.set("Bar", "ram_text", format!("{pct}%"));
-        }
-
-        if let Some(bat) = upower::battery() {
-            ctx.set("Bar", "bat_present", true);
-            ctx.set("Bar", "bat_text", battery_label_text(&bat));
-            ctx.set("Bar", "bat_charging", bat.state == upower::State::Charging);
-        } else {
-            // No battery aggregated by UPower (desktop, or not yet polled)
-            // — hide the chip instead of leaving it stuck on a stale value.
-            ctx.set("Bar", "bat_present", false);
-        }
-
-        if let Some(vol) = sysinfo::volume() {
-            ctx.set(
-                "Bar",
-                "vol_text",
-                if vol.muted {
-                    "muted".to_string()
-                } else {
-                    format!("{}%", vol.percent)
-                },
-            );
-            ctx.set("Bar", "vol_muted", vol.muted);
-        }
-    })?;
-
-    // Weather: a network call to a third-party service (wttr.in), so it
-    // gets its own long-interval timer rather than piggybacking on the
-    // network/stats tick above.
-    shell.on_tick(weather::POLL_INTERVAL, |ctx| {
-        if let Some(w) = weather::status() {
-            ctx.set(
-                "Bar",
-                "weather_text",
-                format!("{}  {}", w.condition, w.temperature),
-            );
-        }
-    })?;
-
-    shell.run()?;
-    Ok(())
-}
-
-/// Spawns `cmd` without blocking and reaps it from a short-lived thread once
-/// it exits. helium-shell lives for the whole session, so a dropped `Child`
-/// would stay a zombie until the shell itself exits.
-fn spawn_reaped(cmd: &mut std::process::Command) {
-    if let Ok(mut child) = cmd.spawn() {
-        std::thread::spawn(move || {
-            let _ = child.wait();
-        });
-    }
-}
-
-/// Opens the shared Eww system monitor (`d77-monitor <mode>`), preferring the
-/// installed copy and falling back to the one in the source tree during
-/// development.
-fn spawn_monitor(mode: &str) {
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("monitor/d77-monitor");
-    let installed = std::path::Path::new("/usr/share/helium-d77/monitor/d77-monitor");
-    let script = if installed.is_file() {
-        installed
-    } else {
-        source.as_path()
-    };
-    spawn_reaped(std::process::Command::new(script).arg(mode));
-}
-
-/// Spawns another binary installed alongside this one (found via
-/// `current_exe()`'s directory), so it works both in `target/debug` during
-/// development and once installed system-wide (e.g. `/usr/bin`), as long as
-/// the sibling binary was installed to the same directory.
-fn spawn_sibling(name: &str) {
+/// `helium start`: launches the session applets, each in its own process
+/// under its helium-<applet> name, and exits. One autostart line instead of
+/// three; an applet already running is left alone.
+fn start() -> ExitCode {
+    use std::os::unix::process::CommandExt;
     let Ok(exe) = std::env::current_exe() else {
-        return;
+        eprintln!("helium: cannot find its own executable");
+        return ExitCode::FAILURE;
     };
-    let Some(dir) = exe.parent() else { return };
-    spawn_reaped(&mut std::process::Command::new(dir.join(name)));
-}
-
-/// Toggles Master mute via `amixer`, matching the control name `sysinfo::volume()`
-/// already reads and the mute-toggle approach quickshell-d77/fabric-d77 use.
-fn toggle_mute() {
-    spawn_reaped(std::process::Command::new("amixer").args(["set", "Master", "toggle"]));
-}
-
-/// "36%" or, with a time estimate available, "36% (1h54m)". Shown inline
-/// in the bar at all times rather than as a hover tooltip: Slint's
-/// `PopupWindow` doesn't compose with this bar's wlr-layer-shell surface
-/// (see the comment on `bat_chip` in bar.slint) — this is the fallback.
-fn battery_label_text(bat: &upower::BatteryInfo) -> String {
-    let time = match bat.state {
-        upower::State::Charging if bat.time_to_full_secs > 0 => {
-            Some(format_duration(bat.time_to_full_secs))
+    let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut failed = false;
+    for applet in SESSION_APPLETS {
+        let name = format!("helium-{applet}");
+        if is_running(&name) {
+            continue;
         }
-        upower::State::Discharging if bat.time_to_empty_secs > 0 => {
-            Some(format_duration(bat.time_to_empty_secs))
+        // Through the symlink when installed, so the process gets its name;
+        // in a target/ build, this binary with that name as argv[0].
+        let link = dir.join(&name);
+        let mut cmd = if link.exists() {
+            std::process::Command::new(link)
+        } else {
+            let mut cmd = std::process::Command::new(&exe);
+            cmd.arg0(&name);
+            cmd
+        };
+        // Its own session, so it outlives this short-lived process and
+        // isn't tied to the terminal or autostart entry that ran it.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
         }
-        _ => None,
-    };
-    match time {
-        Some(t) => format!("{}% ({t})", bat.percent),
-        None => format!("{}%", bat.percent),
+        if let Err(err) = cmd.spawn() {
+            eprintln!("helium: could not start {name}: {err}");
+            failed = true;
+        }
     }
-}
-
-/// "XhYYm" (or just "Ym" under an hour) from a duration in seconds —
-/// deliberately compact (no spaces) since bat_chip only has 110px to work
-/// with alongside the percentage and icon.
-fn format_duration(seconds: u32) -> String {
-    let total_min = (seconds + 30) / 60; // round to nearest minute
-    let h = total_min / 60;
-    let m = total_min % 60;
-    if h > 0 {
-        format!("{h}h{m:02}m")
+    if failed {
+        ExitCode::FAILURE
     } else {
-        format!("{m}m")
+        ExitCode::SUCCESS
     }
 }
 
-/// Power profiles cycled by clicking the battery chip, in the order
-/// quickshell-d77/fabric-d77 cycle them (power-profiles-daemon's own three
-/// profiles — there's no fourth to add).
-const POWER_PROFILES: [&str; 3] = ["performance", "balanced", "power-saver"];
-
-/// Advances to the next `power-profiles-daemon` profile via `powerprofilesctl`.
-/// Reads the current profile synchronously (a local D-Bus round trip,
-/// negligible next to a click) so the cycle has somewhere to advance from;
-/// unrecognized/missing output just starts the cycle over at the first profile.
-fn cycle_power_profile() {
-    let current = std::process::Command::new("powerprofilesctl")
-        .arg("get")
-        .output()
-        .ok()
-        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
-    let idx = current
-        .and_then(|c| POWER_PROFILES.iter().position(|p| *p == c))
-        .unwrap_or(POWER_PROFILES.len() - 1);
-    let next = POWER_PROFILES[(idx + 1) % POWER_PROFILES.len()];
-    spawn_reaped(std::process::Command::new("powerprofilesctl").args(["set", next]));
-}
-
-/// Opens a floating terminal running `nmtui`, the same way quickshell-d77 and
-/// fabric-d77 do: `nmtui-float` isn't a script, it's a Wayland app-id/class
-/// assigned to the launched terminal window so a compositor windowrule can
-/// float it (e.g. Hyprland's `windowrulev2 = float, class:^(nmtui-float)$`,
-/// expected to live in the user's own compositor config, not here).
-///
-/// Tries terminals in the same order as those two projects, falling through
-/// via shell `||` to the next one if a given terminal isn't installed.
-fn launch_nmtui() {
-    let candidates = [
-        ("foot", "foot --app-id=nmtui-float -e nmtui"),
-        ("kitty", "kitty --class=nmtui-float -e nmtui"),
-        ("alacritty", "alacritty --class=nmtui-float -e nmtui"),
-        ("wezterm", "wezterm start --class nmtui-float -- nmtui"),
-        ("xterm", "xterm -class nmtui-float -e nmtui"),
-    ];
-    let script = candidates
-        .iter()
-        .map(|(bin, cmd)| format!("command -v {bin} >/dev/null 2>&1 && exec setsid {cmd}"))
-        .collect::<Vec<_>>()
-        .join(" || ");
-    spawn_reaped(std::process::Command::new("sh").arg("-c").arg(script));
-}
-
-/// Sends a command to Hyprland's control socket and returns its reply.
-fn hypr_command(cmd: &str) -> Option<String> {
-    let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
-    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".into());
-    let path = std::path::PathBuf::from(runtime)
-        .join("hypr")
-        .join(sig)
-        .join(".socket.sock");
-    let mut stream = UnixStream::connect(&path).ok()?;
-    stream.write_all(cmd.as_bytes()).ok()?;
-    stream.shutdown(std::net::Shutdown::Write).ok();
-    let mut reply = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut reply).ok()?;
-    Some(reply)
-}
-
-/// Sends one JSON request to niri's IPC socket and returns its reply line.
-///
-/// Mirrors the request/response shape niri itself uses (one line in, one
-/// line out over `NIRI_SOCKET`) rather than reading to EOF like
-/// `hypr_command` does — niri doesn't close the connection after replying,
-/// so a `read_to_string` here would just hang waiting for EOF.
-fn niri_command(req: &str) -> Option<String> {
-    let path = std::env::var("NIRI_SOCKET").ok()?;
-    let mut stream = UnixStream::connect(&path).ok()?;
-    stream.write_all(req.as_bytes()).ok()?;
-    stream.write_all(b"\n").ok()?;
-    let mut reader = std::io::BufReader::new(stream);
-    let mut line = String::new();
-    std::io::BufRead::read_line(&mut reader, &mut line).ok()?;
-    Some(line)
-}
-
-fn switch_workspace(n: i32) {
-    // `compositors::detect()` picks Hyprland over Niri when both env vars
-    // happen to be set, so mirror that same precedence here.
-    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
-        // Standard Hyprland textual IPC — works on any normal Hyprland install.
-        if let Some(reply) = hypr_command(&format!("dispatch workspace {n}")) {
-            if !reply.starts_with("error") {
-                return;
-            }
+/// Turns an applet's `Result` into an exit code, printing the error the way
+/// returning it from `main` used to.
+fn report<E: Debug>(result: Result<(), E>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("Error: {err:?}");
+            ExitCode::FAILURE
         }
-        // Fallback for compositors that route `dispatch` through a Lua layer
-        // (e.g. a "hyprland-lua" build), where dispatchers are Lua calls instead
-        // of the classic `<name> <args>` text protocol.
-        hypr_command(&format!("dispatch hl.dsp.focus({{ workspace = {n} }})"));
-        return;
-    }
-
-    if std::env::var("NIRI_SOCKET").is_ok() {
-        niri_command(&format!(
-            r#"{{"Action":{{"FocusWorkspace":{{"reference":{{"Index":{n}}}}}}}}}"#
-        ));
-        return;
-    }
-
-    if std::env::var("SWAYSOCK").is_ok() {
-        const RUN_COMMAND: u32 = 0;
-        sway_command(RUN_COMMAND, format!("workspace number {n}").as_bytes());
-        return;
-    }
-
-    if let Some(client) = ext_workspace::client() {
-        client.activate(n);
     }
 }
 
-/// Workspace list for whichever compositor is actually running.
-/// `compositors::detect()` covers Hyprland/niri; Sway needs its own direct
-/// query since helium-wsl doesn't recognize it as a compositor at all (see
-/// `sway_workspaces()`'s doc comment). Checking `compositors::detect()`
-/// first preserves the existing Hyprland-over-niri precedence
-/// `switch_workspace()` also follows — this only reaches the Sway branch
-/// once that call has already failed to find either.
-fn current_workspaces() -> Vec<Workspace> {
-    if let Ok(compositor) = compositors::detect() {
-        return compositor.workspaces();
+fn run(applet: &str, args: &[String]) -> Option<ExitCode> {
+    Some(match applet {
+        "shell" => report(apps::shell::main()),
+        "launcher" => report(apps::launcher::main()),
+        "session" => report(apps::session::main()),
+        "osd" => report(apps::osd::main()),
+        "wallpaper" => report(apps::wallpaper::main(args)),
+        "backdrop" => report(apps::backdrop::main()),
+        "ollama" => report(apps::ollama::main()),
+        "locker" | "lock" => apps::locker::main(args),
+        _ => return None,
+    })
+}
+
+fn main() -> ExitCode {
+    let mut args: Vec<String> = std::env::args().collect();
+    let argv0 = if args.is_empty() {
+        String::new()
+    } else {
+        args.remove(0)
+    };
+    let name = Path::new(&argv0)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    // Started through a helium-<applet> symlink (or with that argv[0]).
+    if let Some(applet) = name.strip_prefix("helium-") {
+        if let Some(code) = run(applet, &args) {
+            return code;
+        }
     }
-    if std::env::var("SWAYSOCK").is_ok() {
-        return sway_workspaces();
+
+    // `helium <applet> [args...]`.
+    match args.first().map(String::as_str) {
+        Some("--version" | "-V") => {
+            println!("helium {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Some("--help" | "-h") => {
+            println!("{}", usage());
+            ExitCode::SUCCESS
+        }
+        Some("start") if args.len() == 1 => start(),
+        Some(applet) => run(applet, &args[1..]).unwrap_or_else(|| {
+            eprintln!("{}", usage());
+            ExitCode::from(2)
+        }),
+        None => {
+            eprintln!("{}", usage());
+            ExitCode::from(2)
+        }
     }
-    ext_workspace::client().map_or_else(Vec::new, |client| client.workspaces())
-}
-
-/// Builds the `[WorkspaceItem]` model value for `ui/bar.slint`'s `workspaces`
-/// property directly from the compositor's live workspace list — the same
-/// `Vec<Workspace>` for Hyprland and Niri alike, so the bar shows exactly as
-/// many pills as actually exist instead of a hardcoded count (Niri's
-/// workspaces are dynamic per-monitor, unlike Hyprland's small fixed set).
-fn workspaces_value(workspaces: &[Workspace], urgent: &[u32]) -> Value {
-    let items: Vec<Value> = workspaces
-        .iter()
-        .map(|w| {
-            let fields: Struct = [
-                ("id".to_string(), Value::Number(w.id as f64)),
-                ("label".to_string(), Value::String(w.name.clone().into())),
-                ("active".to_string(), Value::Bool(w.active)),
-                ("occupied".to_string(), Value::Bool(w.occupied)),
-                ("urgent".to_string(), Value::Bool(urgent.contains(&w.id))),
-            ]
-            .into_iter()
-            .collect();
-            Value::Struct(fields)
-        })
-        .collect();
-    Value::Model(ModelRc::new(VecModel::from(items)))
-}
-
-fn apply_workspaces(shell: &mut ShellInstance, workspaces: &[Workspace]) {
-    shell.set(
-        "Bar",
-        "workspaces",
-        workspaces_value(workspaces, &current_urgent()),
-    );
-}
-
-fn apply_workspaces_ctx(ctx: &mut TickContext, workspaces: &[Workspace]) {
-    ctx.set(
-        "Bar",
-        "workspaces",
-        workspaces_value(workspaces, &current_urgent()),
-    );
-}
-
-/// Positions of the workspaces asking for attention. Only ext-workspace
-/// reports it; the helium_wsl backends and Sway's IPC path don't.
-fn current_urgent() -> Vec<u32> {
-    if compositors::detect().is_ok() || std::env::var("SWAYSOCK").is_ok() {
-        return Vec::new();
-    }
-    ext_workspace::client().map_or_else(Vec::new, |client| client.urgent())
 }

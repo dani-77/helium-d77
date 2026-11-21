@@ -644,7 +644,7 @@ fn copy_to_clipboard(text: &str) {
     let _ = child.wait();
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let saved_model = read_saved_model();
     let initial_up = ollama_running();
     let initial_models = fetch_models().unwrap_or_default();

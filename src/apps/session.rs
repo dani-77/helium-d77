@@ -193,7 +193,7 @@ export component SessionMenu inherits Window {{
     )
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let actions = Rc::new(actions());
     let source = build_slint_source(&actions);
 

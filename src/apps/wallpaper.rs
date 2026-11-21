@@ -271,7 +271,7 @@ fn detect_compositor() -> Compositor {
 /// invocations and (via `--startup`) reboots. Always targets every
 /// monitor rather than trying to resolve the focused one — this project
 /// doesn't otherwise track per-monitor state (see the bar's own
-/// single-primary-monitor width handling in src/main.rs), so a single
+/// single-primary-monitor width handling in src/apps/shell.rs), so a single
 /// shared wallpaper across all outputs keeps that same scope.
 ///
 /// Only persists on success: persisting unconditionally would let
@@ -626,8 +626,8 @@ export component Wallpaper inherits Window {{
     )
 }
 
-fn main() -> Result<()> {
-    if std::env::args().nth(1).as_deref() == Some("--startup") {
+pub fn main(args: &[String]) -> Result<()> {
+    if args.first().map(String::as_str) == Some("--startup") {
         if let Some(path) = read_saved_wallpaper() {
             if Path::new(&path).is_file() {
                 apply_wallpaper_inner(&path, true);

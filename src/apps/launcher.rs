@@ -470,7 +470,7 @@ export component Launcher inherits Window {{
     )
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let apps = Rc::new(scan_apps());
     let terminal = Rc::new(detect_terminal());
     let source = build_slint_source(&apps);

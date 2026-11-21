@@ -43,9 +43,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2000);
 const VISIBLE_FOR: Duration = Duration::from_millis(2500);
 
 /// Reads Master volume via `amixer`, same control name and parsing as the
-/// bar's own `sysinfo::volume()` (not shared code: binaries under src/bin/
-/// don't share modules with src/main.rs in this project, see helium-session
-/// and helium-locker for the same pattern).
+/// bar's own `sysinfo::volume()` (kept separate: the applets were separate
+/// binaries that couldn't share modules, see helium-session and helium-locker
+/// for the same pattern).
 fn read_volume() -> Option<(u8, bool)> {
     let output = std::process::Command::new("amixer")
         .args(["sget", "Master"])
@@ -80,7 +80,7 @@ fn read_power_profile() -> Option<String> {
     (!profile.is_empty()).then_some(profile)
 }
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     let mut shell = Shell::from_source(include_str!("../../ui/osd.slint"))
         .surface("Osd")
         .size(1, 1)

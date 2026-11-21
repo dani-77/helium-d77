@@ -1,4 +1,5 @@
-# Build + system-wide install for helium-shell and its sibling binaries.
+# Build + system-wide install for helium-d77: one `helium` binary plus a
+# helium-<applet> symlink to it for each program (see src/main.rs).
 #
 #   make                 # cargo build --release
 #   sudo make install    # install into $(DESTDIR)$(PREFIX)/bin
@@ -18,7 +19,7 @@ BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SHAREDIR := $(DESTDIR)$(PREFIX)/share/helium-d77
 PAMDIR  := $(DESTDIR)/etc/pam.d
 
-BINS := helium-shell helium-launcher helium-session helium-osd helium-wallpaper helium-backdrop helium-ollama helium-locker
+APPLETS := shell launcher session osd wallpaper backdrop ollama locker
 
 .PHONY: all build install uninstall clean
 
@@ -29,7 +30,8 @@ build:
 
 install: build
 	install -d $(BINDIR)
-	$(foreach bin,$(BINS),install -Dm755 target/release/$(bin) $(BINDIR)/$(bin);)
+	install -Dm755 target/release/helium $(BINDIR)/helium
+	$(foreach a,$(APPLETS),ln -sf helium $(BINDIR)/helium-$(a);)
 	install -Dm644 assets/d77-logo.svg $(SHAREDIR)/d77-logo.svg
 	install -Dm755 monitor/d77-monitor $(SHAREDIR)/monitor/d77-monitor
 	install -Dm644 monitor/eww.yuck $(SHAREDIR)/monitor/eww.yuck
@@ -37,7 +39,8 @@ install: build
 	install -Dm644 pam.d/helium-locker $(PAMDIR)/helium-locker
 
 uninstall:
-	$(foreach bin,$(BINS),rm -f $(BINDIR)/$(bin);)
+	rm -f $(BINDIR)/helium
+	$(foreach a,$(APPLETS),rm -f $(BINDIR)/helium-$(a);)
 	rm -f $(SHAREDIR)/d77-logo.svg
 	rm -f $(SHAREDIR)/monitor/d77-monitor $(SHAREDIR)/monitor/eww.yuck $(SHAREDIR)/monitor/eww.scss
 	rm -f $(PAMDIR)/helium-locker

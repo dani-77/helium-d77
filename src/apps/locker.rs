@@ -91,10 +91,10 @@ const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_SURFACE_DIMENSION: u32 = 16_384;
 const MAX_BUFFER_SCALE: i32 = 8;
 
-fn main() -> ExitCode {
+pub fn main(args: &[String]) -> ExitCode {
     env_logger::init();
 
-    match std::env::args().nth(1).as_deref() {
+    match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
             println!("helium-locker {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
