@@ -32,7 +32,7 @@ a rounded, floating pill anchored to the top of the screen.
   count), active one highlighted green, a small dot marks
   occupied-but-inactive ones. Click a pill to switch to that workspace —
   works on Hyprland, Niri, and Sway (see `switch_workspace()` in
-  `src/main.rs`). State is polled every second, not pushed via compositor
+  `src/apps/shell.rs`). State is polled every second, not pushed via compositor
   events (see Limitations for why). The bar reserves real screen space
   (exclusive zone), so windows don't render underneath it.
 - **Weather + date/time** — geometrically centered on the bar as one unit
@@ -113,7 +113,7 @@ backend the running compositor actually has — `hyprctl hyprpaper` on
 Hyprland, `swaymsg output ... bg` on Sway, or a `swww`/`swaybg`/`feh`
 fallback chain everywhere else (niri included, since it has no wallpaper
 daemon of its own) — the same compositor-detection precedence
-`switch_workspace()` in `src/main.rs` uses. The active thumbnail gets a
+`switch_workspace()` in `src/apps/shell.rs` uses. The active thumbnail gets a
 green border; "Clear" removes the wallpaper and un-highlights it.
 
 Unlike the launcher/session menu, clicking a thumbnail doesn't close the
@@ -182,7 +182,7 @@ are `0700 root:root`, so a plain user always gets "access denied" and
 the dot would read down forever even with Ollama running fine; hitting
 the API directly sidesteps that and is the more meaningful check anyway
 (same fix already landed in quickshell-d77/utumno's `OllamaChat.qml`).
-Edit `ollama_running()` in `src/bin/helium-ollama.rs` if you'd rather
+Edit `ollama_running()` in `src/apps/ollama.rs` if you'd rather
 check a specific init system instead.
 
 On first run (no models installed yet), if Ollama's up and
@@ -408,7 +408,7 @@ access aren't exposed by helium-wsl's `Helium` wrapper).
   still runs without any of them, just without that section updating).
   `helium_wsl::compositors::detect()` only knows Hyprland/niri, so Sway's
   monitor width, workspace list, and click-to-switch are all implemented
-  directly in `src/main.rs` (`sway_monitor_width()`, `sway_workspaces()`,
+  directly in `src/apps/shell.rs` (`sway_monitor_width()`, `sway_workspaces()`,
   the `SWAYSOCK` branch of `switch_workspace()`) over its native i3-ipc
   socket instead.
 - Under [mangowc](https://github.com/DreamMaoMao/mangowc), only the bar's
@@ -475,10 +475,11 @@ sudo make uninstall
   running system.
 - Needs `make` and everything listed under Requirements above (cargo, the
   `-devel` packages, since `install` always builds first).
-- Installs `helium-shell`, `helium-launcher`, `helium-session`,
-  `helium-osd`, `helium-wallpaper`, `helium-backdrop`, and `helium-ollama`
-  to `$(DESTDIR)$(PREFIX)/bin`. `helium-locker` is deliberately left out —
-  see Locker above for installing it by hand.
+- Installs one binary, `helium`, to `$(DESTDIR)$(PREFIX)/bin`, plus a
+  symlink to it for each program: `helium-shell`, `helium-launcher`,
+  `helium-session`, `helium-osd`, `helium-wallpaper`, `helium-backdrop`,
+  `helium-ollama` and `helium-locker`. Also installs the system monitor under
+  `$(PREFIX)/share/helium-d77/monitor` and `/etc/pam.d/helium-locker`.
 - `helium-shell` needs autostarting by your compositor as usual;
   `helium-osd` and `helium-backdrop` additionally need their own autostart
   entries (see their sections above) — the bar doesn't launch either for
@@ -493,38 +494,57 @@ Packaging templates live under `packaging/`: `packaging/void/template`
 [`d77void/srcpkgs-d77`](https://github.com/d77void/srcpkgs-d77)) and
 `packaging/arch/PKGBUILD` (the one published in the AUR as
 [`helium-d77`](https://aur.archlinux.org/packages/helium-d77)). Both build the
-tagged release tarball and install the same seven binaries `make install`
-does (`helium-locker` stays out for the reason in Locker above).
+tagged release tarball and install the same files `make install` does: the
+`helium` binary and its `helium-<applet>` symlinks.
+
+## One binary, many programs
+
+`src/main.rs` builds a single `helium` binary. Each program is an applet with
+its own `main` in `src/apps/` (`shell.rs` is the bar), and still runs in its
+own process exactly as when they were separate binaries. The binary picks the
+applet busybox style, from the name it was started as (`helium-launcher` runs
+`src/apps/launcher.rs`), or from its first argument (`helium launcher`), so
+compositor configs, kantele and anything that finds a process by name keep
+working.
+
+The separate binaries each carried their own copy of Slint, helium-wsl,
+layer-shika, tokio and zbus, over 90% of each one: eight of them came to
+204 MB (139 MB with the size-optimized release profile), against 21 MB
+for the single binary.
+
+The bar starts the launcher and the session menu through the
+`helium-<applet>` symlink next to it; in a `target/` build, which has no
+symlinks, it runs the same binary with that name as `argv[0]` instead.
 
 ## Running
 
 ```sh
-cargo run --release
+cargo run --release -- shell      # the bar; or launcher, osd, session, ...
 ```
 
-`ui/bar.slint` is embedded into the binary at compile time (`include_str!`),
-so the built binary is self-contained — it can be installed anywhere (e.g.
-`/usr/bin/helium-shell`) and run from any working directory, autostart
-config included.
+The `ui/*.slint` files are embedded into the binary at compile time
+(`include_str!`/`slint!`), so the built binary is self-contained: it can be
+installed anywhere (e.g. `/usr/bin/helium`) and run from any working
+directory, autostart config included.
 
 ## Customizing
 
 - **Monitor width**: derived automatically at startup from
-  `compositor.monitors()` (see `primary_monitor_width()` in `src/main.rs`),
+  `compositor.monitors()` (see `primary_monitor_width()` in `src/apps/shell.rs`),
   so there's nothing to hand-edit per machine. The margin (10px on three
   sides) is a constant (`MARGIN`) in the same file if you want it different.
 - **Colors/fonts**: everything lives in `ui/bar.slint`; the bar reuses the
   dark/green palette from Helium's own examples (`#0d0d0d` / `#141414`
   background, `#76b900` accent). `helium-wallpaper`/`helium-backdrop` reuse
   the same palette in their own generated Slint source (see the constants
-  and `build_slint_source()`/`SOURCE` in their respective `src/bin/` files).
+  and `build_slint_source()`/`SOURCE` in their respective `src/apps/` files).
   `helium-ollama` reuses it too, but as a static file (`ui/ollama.slint`)
   rather than Rust-generated source, like `ui/osd.slint`.
 - **Wallpaper directory**: `helium-wallpaper` scans `$HOME/Wallpaper` by
   default — set `HELIUM_WALLPAPER_DIR` to point it elsewhere instead of
   moving/symlinking your wallpapers to match.
 - **Sections**: add more properties to the `Bar` component and set them from
-  `src/main.rs` the same way the existing ones are — via `shell.set(...)` /
+  `src/apps/shell.rs` the same way the existing ones are — via `shell.set(...)` /
   `ctx.set(...)`.
 
 ## Limitations (inherited from Helium 0.2.3, worked around here)
@@ -535,7 +555,7 @@ config included.
   the workspace id already embedded in the raw `workspace>>N` event line.
   Under fast workspace churn those two snapshots can disagree, and
   `poll_event()` silently drops the event — the pills would desync and never
-  recover. `src/main.rs` sidesteps this by polling `compositor.workspaces()`
+  recover. `src/apps/shell.rs` sidesteps this by polling `compositor.workspaces()`
   on a 1s timer instead of trusting the push event.
 - **`helium_wsl::services::network::status()` is broken upstream.**
   `GetDevices` returns D-Bus signature `ao` (plain object paths); the crate
@@ -548,7 +568,7 @@ config included.
   the output's own `modes` array — the type mismatch makes
   `serde_json::from_value` fail silently for every real niri output, so
   `monitors()` always returns an empty `Vec`. `primary_monitor_width()` in
-  `src/main.rs` used to fall through to `FALLBACK_MONITOR_WIDTH` (1366) on
+  `src/apps/shell.rs` used to fall through to `FALLBACK_MONITOR_WIDTH` (1366) on
   every niri machine as a result, rendering the bar visibly too narrow
   regardless of actual screen size. `niri_monitor_width()` now queries
   niri's `Outputs` IPC directly and reads `logical.width` instead (already
@@ -558,7 +578,7 @@ config included.
   you want to add it back — see `docs/services.md` in the helium-wsl repo.
 - **Workspace click-to-switch talks to the compositor directly**, since
   Helium's `Compositor` trait has no dispatch/write API — `switch_workspace()`
-  in `src/main.rs` branches on `$HYPRLAND_INSTANCE_SIGNATURE` /
+  in `src/apps/shell.rs` branches on `$HYPRLAND_INSTANCE_SIGNATURE` /
   `$NIRI_SOCKET` / `$SWAYSOCK` and speaks each compositor's own IPC. For
   Hyprland it tries the standard textual IPC (`dispatch workspace N`) first,
   falling back to `dispatch hl.dsp.focus({ workspace = N })` for Lua-config
@@ -569,7 +589,7 @@ config included.
   numbering niri's own UI shows. For Sway, since `helium_wsl` has no Sway
   backend at all, both the listing (`sway_workspaces()`) and the switch
   (`workspace number N` over i3-ipc) are implemented from scratch in
-  `src/main.rs` rather than routed through `helium_wsl::compositors`;
+  `src/apps/shell.rs` rather than routed through `helium_wsl::compositors`;
   `sway_workspaces()` reads each workspace's `representation` field
   (`null` exactly when it has no windows, per Sway's own IPC docs) for the
   `occupied` dot instead of a second `GET_TREE` call.

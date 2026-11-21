@@ -103,6 +103,9 @@ A couple of the companion tools are handy to start automatically as well, and
 a couple more are opened on demand — you don't need to do anything extra for
 those:
 
+All of these are one program, `helium`: each `helium-<name>` command is a
+shortcut to it, and `helium <name>` does the same (e.g. `helium launcher`).
+
 | Tool | Starts... |
 |---|---|
 | `helium-shell` (the bar) | automatically, add to your compositor config (above) |

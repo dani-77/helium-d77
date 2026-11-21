@@ -6,6 +6,12 @@ description = "A Wayland shell built with the Helium shell framework"
 authors = ["Daniel Azevedo", "dani-77 <daniazevedo77@posteo.net>"]
 license = "MIT"
 
+# One binary for every program; the packages add helium-<applet> symlinks
+# (see src/main.rs).
+[[bin]]
+name = "helium"
+path = "src/main.rs"
+
 [dependencies]
 helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
 zbus = "4"
@@ -13,7 +19,7 @@ zvariant = "4"
 tokio = { version = "1", features = ["rt"] }
 # Direct dependency so primary_monitor_width() can query niri's Outputs IPC
 # itself, working around a parsing bug in helium-wsl's niri backend — see
-# the comment on niri_monitor_width() in src/main.rs.
+# the comment on niri_monitor_width() in src/apps/shell.rs.
 serde_json = "1"
 
 # Direct dependency (rather than just helium-wsl's `raw` re-export) for the
