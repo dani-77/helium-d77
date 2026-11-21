@@ -51,7 +51,13 @@ impl Server {
             .truncate(false)
             .open(path.with_extension("lock"))?;
         // SAFETY: flock on a file descriptor we own.
-        if unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&lock), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if unsafe {
+            libc::flock(
+                std::os::fd::AsRawFd::as_raw_fd(&lock),
+                libc::LOCK_EX | libc::LOCK_NB,
+            )
+        } != 0
+        {
             return Err(io::Error::other(
                 "another helium-shell is already running on this display",
             ));

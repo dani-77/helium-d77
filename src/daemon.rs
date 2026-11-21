@@ -26,8 +26,8 @@ use helium_wsl::raw::prelude::{KeyboardInteractivity, ShellControl};
 use helium_wsl::slint_interpreter::Value;
 use helium_wsl::HeliumError;
 
-use crate::apps::osd::{self, OsdAction, OsdState, HIDDEN_SIZE};
 use crate::apps::launcher::{self, HostedLauncher};
+use crate::apps::osd::{self, OsdAction, OsdState, HIDDEN_SIZE};
 use crate::apps::session::{self, Action};
 use crate::ipc;
 
@@ -98,7 +98,10 @@ impl Panel {
 
 /// Wires the OSD, the session menu, the launcher and the IPC socket into the
 /// running shell.
-pub fn attach(shell: &mut ShellInstance, session_actions: Rc<Vec<Action>>) -> Result<(), HeliumError> {
+pub fn attach(
+    shell: &mut ShellInstance,
+    session_actions: Rc<Vec<Action>>,
+) -> Result<(), HeliumError> {
     let mut state = OsdState::new();
     shell.on_tick(osd::POLL_INTERVAL, move |ctx| match state.poll() {
         OsdAction::Show(update) => {

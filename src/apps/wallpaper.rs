@@ -426,6 +426,12 @@ fn escape_slint_string(s: &str) -> String {
 
 const CELL_W: u32 = 160;
 const CELL_H: u32 = 110;
+/// Thumbnails are made at twice the cell size, so they stay sharp at scale 2.
+const THUMB_W: u32 = CELL_W * 2;
+const THUMB_H: u32 = CELL_H * 2;
+/// How many wallpapers are decoded at once the first time: an 8K PNG takes
+/// about 200 MB decoded.
+const THUMB_THREADS: usize = 4;
 const GAP: u32 = 10;
 const PADDING: u32 = 14;
 const HEADER_HEIGHT: u32 = 40;
@@ -436,10 +442,101 @@ fn columns() -> u32 {
     ((WINDOW_WIDTH - 2 * PADDING + GAP) / (CELL_W + GAP)).max(1)
 }
 
-fn build_slint_source(images: &[WallpaperEntry], current_index: i32, dir: &Path) -> String {
+/// `$XDG_CACHE_HOME/helium-d77/thumbs` (or `~/.cache/...`).
+fn thumbnail_dir() -> Option<PathBuf> {
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
+    Some(cache.join("helium-d77").join("thumbs"))
+}
+
+/// Cache file name for `path`: changes when the file's size or modification
+/// time does, so an edited wallpaper gets a new thumbnail. FNV-1a, so the name
+/// is the same across builds.
+fn thumbnail_name(path: &Path) -> Option<String> {
+    let meta = fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let key = format!("{}\0{}\0{}", path.display(), meta.len(), mtime);
+    for byte in key.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    Some(format!("{hash:016x}.png"))
+}
+
+/// A small cached copy of the wallpaper at `path`, made if it doesn't exist
+/// yet. The original path when one can't be made (a format the `image`
+/// crate isn't built with here, an unwritable cache).
+fn thumbnail_for(path: &str, dir: &Path) -> String {
+    let source = Path::new(path);
+    let Some(name) = thumbnail_name(source) else {
+        return path.to_string();
+    };
+    let thumb = dir.join(name);
+    if !thumb.is_file() {
+        // Guessed from the contents, not the extension: some wallpapers are
+        // JPEGs named .png.
+        let made = image::ImageReader::open(source)
+            .and_then(|reader| reader.with_guessed_format())
+            .ok()
+            .and_then(|reader| reader.decode().ok())
+            .map(|img| img.thumbnail(THUMB_W, THUMB_H))
+            .is_some_and(|small| small.save(&thumb).is_ok());
+        if !made {
+            return path.to_string();
+        }
+    }
+    thumb.to_str().map_or_else(|| path.to_string(), str::to_string)
+}
+
+/// Thumbnail paths for `images`, in order. Opening the picker used to decode
+/// every wallpaper at full size each time (about 1 s per 8K image); now only
+/// the first time, on a few threads.
+fn thumbnails(images: &[WallpaperEntry]) -> Vec<String> {
+    let Some(dir) = thumbnail_dir().filter(|dir| fs::create_dir_all(dir).is_ok()) else {
+        return images.iter().map(|img| img.path.clone()).collect();
+    };
+    let per_thread = images.len().div_ceil(THUMB_THREADS).max(1);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = images
+            .chunks(per_thread)
+            .map(|chunk| {
+                let dir = &dir;
+                scope.spawn(move || {
+                    chunk
+                        .iter()
+                        .map(|img| thumbnail_for(&img.path, dir))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .zip(images.chunks(per_thread))
+            .flat_map(|(worker, chunk)| {
+                worker
+                    .join()
+                    .unwrap_or_else(|_| chunk.iter().map(|img| img.path.clone()).collect())
+            })
+            .collect()
+    })
+}
+
+fn build_slint_source(
+    images: &[WallpaperEntry],
+    thumbs: &[String],
+    current_index: i32,
+    dir: &Path,
+) -> String {
     let cols = columns();
     let mut cells = String::new();
-    for (i, img) in images.iter().enumerate() {
+    for (i, (img, thumb)) in images.iter().zip(thumbs).enumerate() {
         let row = i as u32 / cols;
         let col = i as u32 % cols;
         let x = PADDING + col * (CELL_W + GAP);
@@ -447,7 +544,7 @@ fn build_slint_source(images: &[WallpaperEntry], current_index: i32, dir: &Path)
         let _ = writeln!(
             cells,
             r#"        WallpaperCell {{ x: {x}px; y: {y}px; thumb: @image-url("{path}"); label: "{name}"; is_current: root.current_index == {i}; clicked => {{ wallpaper_clicked({i}); }} }}"#,
-            path = escape_slint_string(&img.path),
+            path = escape_slint_string(thumb),
             name = escape_slint_string(&img.name),
         );
     }
@@ -644,7 +741,8 @@ pub fn main(args: &[String]) -> Result<()> {
         .and_then(|p| images.iter().position(|w| w.path == p))
         .map_or(-1, |i| i as i32);
 
-    let source = build_slint_source(&images, initial_index, &dir);
+    let thumbs = thumbnails(&images);
+    let source = build_slint_source(&images, &thumbs, initial_index, &dir);
 
     let mut shell = Shell::from_source(source)
         .surface("Wallpaper")

@@ -182,7 +182,10 @@ impl OsdState {
         if let Some(update) = update {
             self.hide_at = Some(Instant::now() + VISIBLE_FOR);
             OsdAction::Show(update)
-        } else if self.hide_at.is_some_and(|deadline| Instant::now() >= deadline) {
+        } else if self
+            .hide_at
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             self.hide_at = None;
             OsdAction::Hide
         } else {

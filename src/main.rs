@@ -11,6 +11,7 @@
 //! Each applet still runs in its own process, exactly as before.
 
 mod apps;
+mod compositor_watch;
 mod daemon;
 mod ext_workspace;
 mod ipc;
@@ -51,7 +52,8 @@ fn usage() -> String {
 }
 
 /// Whether a process named `name` (its `comm`, as `pgrep -x` sees it) is
-/// already running for this user.
+/// already running for this user under the current compositor. One left
+/// over from an earlier session doesn't count.
 fn is_running(name: &str) -> bool {
     let uid = unsafe { libc::getuid() };
     let Ok(entries) = std::fs::read_dir("/proc") else {
@@ -62,6 +64,10 @@ fn is_running(name: &str) -> bool {
         let path = entry.path();
         entry.metadata().is_ok_and(|m| m.uid() == uid)
             && std::fs::read_to_string(path.join("comm")).is_ok_and(|comm| comm.trim_end() == name)
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(compositor_watch::is_current)
     })
 }
 
@@ -124,6 +130,11 @@ fn report<E: Debug>(result: Result<(), E>) -> ExitCode {
 }
 
 fn run(applet: &str, args: &[String]) -> Option<ExitCode> {
+    if !APPLETS.contains(&applet) && applet != "lock" {
+        return None;
+    }
+    // Every applet is a Wayland client: none should outlive its compositor.
+    compositor_watch::exit_with_compositor();
     Some(match applet {
         "shell" => report(apps::shell::main()),
         "launcher" => report(apps::launcher::main()),
