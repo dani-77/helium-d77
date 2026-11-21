@@ -85,9 +85,6 @@ impl Server {
 }
 
 /// Sends one command to the helium-shell running on this display.
-// Used by `helium <command>` once commands are routed here (session menu,
-// launcher).
-#[allow(dead_code)]
 pub fn send(command: &str) -> io::Result<()> {
     if command.len() > MAX_COMMAND {
         return Err(io::Error::other("command too long"));

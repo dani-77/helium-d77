@@ -256,7 +256,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // (e.g. /usr/bin/helium-shell) and run from anywhere else, or autostarted
     // by the compositor with an unrelated working directory.
     // ui/bar.slint plus the surfaces helium-shell hosts (src/daemon.rs).
-    let bar = Helium::from_source(crate::daemon::SOURCE)
+    let session_actions = std::rc::Rc::new(crate::apps::session::actions());
+    let bar = Helium::from_source(crate::daemon::source(&session_actions))
         .surface("Bar")
         .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
@@ -294,8 +295,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     shell.on_signal("Bar", "launcher_clicked", |_| {
         spawn_sibling("helium-launcher")
     });
+    // The session menu is one of helium-shell's own surfaces, toggled
+    // through its IPC socket like `helium session` does.
     shell.on_signal("Bar", "session_clicked", |_| {
-        spawn_sibling("helium-session")
+        if crate::ipc::send("session").is_err() {
+            spawn_sibling("helium-session");
+        }
     });
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
     shell.on_signal("Bar", "cpu_clicked", |_| spawn_monitor("cpu"));
@@ -403,7 +408,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
 
-    crate::daemon::attach(&mut shell)?;
+    crate::daemon::attach(&mut shell, session_actions)?;
     shell.run()?;
     Ok(())
 }
