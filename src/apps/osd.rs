@@ -27,19 +27,19 @@ use layer_shika::calloop::TimeoutAction;
 use layer_shika::prelude::*;
 use layer_shika::slint_interpreter::Value;
 
-const OSD_WIDTH: u32 = 260;
-const OSD_HEIGHT: u32 = 64;
+pub const OSD_WIDTH: u32 = 260;
+pub const OSD_HEIGHT: u32 = 64;
 // Bar margin (10px) + bar height (36px) + a small gap, so the OSD sits below
 // the bar instead of overlapping it: Layer::Overlay ignores the bar's own
 // exclusive zone, so this has to be accounted for by hand.
-const TOP_MARGIN: i32 = 54;
-const SIDE_MARGIN: i32 = 16;
+pub const TOP_MARGIN: i32 = 54;
+pub const SIDE_MARGIN: i32 = 16;
 // Was 300ms: 3 subprocess spawns/cycle (amixer, brightnessctl,
 // powerprofilesctl — the latter alone ~500ms per fabric-d77's osd.py, i.e.
 // slower than this interval), forever in the background regardless of OSD
 // visibility. Nothing about "someone else changed it" detection needs
 // sub-second latency; 2s cuts that by ~85% for the same behavior.
-const POLL_INTERVAL: Duration = Duration::from_millis(2000);
+pub const POLL_INTERVAL: Duration = Duration::from_millis(2000);
 const VISIBLE_FOR: Duration = Duration::from_millis(2500);
 
 /// Reads Master volume via `amixer`, same control name and parsing as the
@@ -80,7 +80,122 @@ fn read_power_profile() -> Option<String> {
     (!profile.is_empty()).then_some(profile)
 }
 
+/// What the OSD should show after a change.
+pub struct OsdUpdate {
+    pub glyph: &'static str,
+    pub label: String,
+    /// `Some(0.0..=1.0)` shows the progress bar at that level; `None` hides it.
+    pub level: Option<f64>,
+}
+
+impl OsdUpdate {
+    /// Applies this update to an `Osd` component instance.
+    pub fn apply(&self, instance: &layer_shika::slint_interpreter::ComponentInstance) {
+        instance
+            .set_property("glyph", Value::String(self.glyph.into()))
+            .ok();
+        instance
+            .set_property("label", Value::String(self.label.clone().into()))
+            .ok();
+        instance
+            .set_property("level", Value::Number(self.level.unwrap_or(0.0)))
+            .ok();
+        instance
+            .set_property("show_progress", Value::Bool(self.level.is_some()))
+            .ok();
+    }
+}
+
+/// What a poll decided: show an update, hide the OSD, or leave it as it is.
+pub enum OsdAction {
+    Show(OsdUpdate),
+    Hide,
+    Nothing,
+}
+
+/// Change detection shared by the standalone `helium-osd` and the OSD hosted
+/// in helium-shell: remembers the last values and when to hide again.
+pub struct OsdState {
+    last_volume: Option<(u8, bool)>,
+    last_brightness: Option<u8>,
+    last_profile: Option<String>,
+    hide_at: Option<Instant>,
+}
+
+impl OsdState {
+    /// Seeded with the current values, so startup itself never counts as a
+    /// "change" and flashes the OSD.
+    pub fn new() -> Self {
+        Self {
+            last_volume: read_volume(),
+            last_brightness: read_brightness(),
+            last_profile: read_power_profile(),
+            hide_at: None,
+        }
+    }
+
+    /// Reads volume, brightness and power profile once. When several changed
+    /// since the last poll, the last one wins, as before.
+    pub fn poll(&mut self) -> OsdAction {
+        let mut update = None;
+
+        if let Some((percent, muted)) = read_volume() {
+            if self.last_volume != Some((percent, muted)) {
+                self.last_volume = Some((percent, muted));
+                update = Some(OsdUpdate {
+                    glyph: if muted { "\u{F026}" } else { "\u{F028}" },
+                    label: if muted {
+                        "Muted".to_string()
+                    } else {
+                        format!("Volume {percent}%")
+                    },
+                    level: Some(percent as f64 / 100.0),
+                });
+            }
+        }
+
+        if let Some(percent) = read_brightness() {
+            if self.last_brightness != Some(percent) {
+                self.last_brightness = Some(percent);
+                update = Some(OsdUpdate {
+                    glyph: "\u{F185}",
+                    label: format!("Brightness {percent}%"),
+                    level: Some(percent as f64 / 100.0),
+                });
+            }
+        }
+
+        if let Some(profile) = read_power_profile() {
+            if self.last_profile.as_deref() != Some(profile.as_str()) {
+                self.last_profile = Some(profile.clone());
+                update = Some(OsdUpdate {
+                    glyph: "\u{F013}",
+                    label: profile.replace('-', " "),
+                    level: None,
+                });
+            }
+        }
+
+        if let Some(update) = update {
+            self.hide_at = Some(Instant::now() + VISIBLE_FOR);
+            OsdAction::Show(update)
+        } else if self.hide_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            self.hide_at = None;
+            OsdAction::Hide
+        } else {
+            OsdAction::Nothing
+        }
+    }
+}
+
 pub fn main() -> Result<()> {
+    // helium-shell hosts the OSD itself (see src/daemon.rs); a second one
+    // would show every change twice.
+    if crate::ipc::daemon_running() {
+        eprintln!("helium-osd: helium-shell already shows the OSD; nothing to do");
+        return Ok(());
+    }
+
     let mut shell = Shell::from_source(include_str!("../../ui/osd.slint"))
         .surface("Osd")
         .size(1, 1)
@@ -93,96 +208,21 @@ pub fn main() -> Result<()> {
 
     let osd_surface = shell.control().surface("Osd");
     let event_loop = shell.event_loop_handle();
-
-    // Seeded before the first tick so startup itself never counts as a
-    // "change" and flashes the OSD on launch.
-    let mut last_volume = read_volume();
-    let mut last_brightness = read_brightness();
-    let mut last_profile = read_power_profile();
-    let mut hide_at: Option<Instant> = None;
+    let mut state = OsdState::new();
 
     event_loop.add_timer(POLL_INTERVAL, move |_, app_state| {
-        let mut changed = false;
-
-        if let Some((percent, muted)) = read_volume() {
-            if last_volume != Some((percent, muted)) {
-                last_volume = Some((percent, muted));
-                let icon = if muted { "\u{F026}" } else { "\u{F028}" };
-                let label = if muted {
-                    "Muted".to_string()
-                } else {
-                    format!("Volume {percent}%")
-                };
+        match state.poll() {
+            OsdAction::Show(update) => {
                 for surface in app_state.surfaces_by_name("Osd") {
-                    let instance = surface.component_instance();
-                    instance
-                        .set_property("glyph", Value::String(icon.into()))
-                        .ok();
-                    instance
-                        .set_property("label", Value::String(label.clone().into()))
-                        .ok();
-                    instance
-                        .set_property("level", Value::Number(percent as f64 / 100.0))
-                        .ok();
-                    instance
-                        .set_property("show_progress", Value::Bool(true))
-                        .ok();
+                    update.apply(surface.component_instance());
                 }
-                changed = true;
+                osd_surface.resize(OSD_WIDTH, OSD_HEIGHT).ok();
             }
-        }
-
-        if let Some(percent) = read_brightness() {
-            if last_brightness != Some(percent) {
-                last_brightness = Some(percent);
-                let label = format!("Brightness {percent}%");
-                for surface in app_state.surfaces_by_name("Osd") {
-                    let instance = surface.component_instance();
-                    instance
-                        .set_property("glyph", Value::String("\u{F185}".into()))
-                        .ok();
-                    instance
-                        .set_property("label", Value::String(label.clone().into()))
-                        .ok();
-                    instance
-                        .set_property("level", Value::Number(percent as f64 / 100.0))
-                        .ok();
-                    instance
-                        .set_property("show_progress", Value::Bool(true))
-                        .ok();
-                }
-                changed = true;
+            OsdAction::Hide => {
+                osd_surface.resize(1, 1).ok();
             }
+            OsdAction::Nothing => {}
         }
-
-        if let Some(profile) = read_power_profile() {
-            if last_profile.as_deref() != Some(profile.as_str()) {
-                last_profile = Some(profile.clone());
-                let label = profile.replace('-', " ");
-                for surface in app_state.surfaces_by_name("Osd") {
-                    let instance = surface.component_instance();
-                    instance
-                        .set_property("glyph", Value::String("\u{F013}".into()))
-                        .ok();
-                    instance
-                        .set_property("label", Value::String(label.clone().into()))
-                        .ok();
-                    instance
-                        .set_property("show_progress", Value::Bool(false))
-                        .ok();
-                }
-                changed = true;
-            }
-        }
-
-        if changed {
-            osd_surface.resize(OSD_WIDTH, OSD_HEIGHT).ok();
-            hide_at = Some(Instant::now() + VISIBLE_FOR);
-        } else if hide_at.is_some_and(|deadline| Instant::now() >= deadline) {
-            osd_surface.resize(1, 1).ok();
-            hide_at = None;
-        }
-
         TimeoutAction::ToDuration(POLL_INTERVAL)
     })?;
 

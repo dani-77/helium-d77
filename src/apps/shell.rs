@@ -255,7 +255,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // root, which breaks the moment the binary is installed system-wide
     // (e.g. /usr/bin/helium-shell) and run from anywhere else, or autostarted
     // by the compositor with an unrelated working directory.
-    let mut shell = Helium::from_source(include_str!("../../ui/bar.slint"))
+    // ui/bar.slint plus the surfaces helium-shell hosts (src/daemon.rs).
+    let bar = Helium::from_source(crate::daemon::SOURCE)
         .surface("Bar")
         .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
@@ -263,8 +264,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Hyprland adds the surface's own top margin on top of this value,
         // so the exclusive zone only needs to cover the bar's height itself.
         .exclusive_zone(36)
-        .layer(Layer::Top)
-        .build()?;
+        .layer(Layer::Top);
+    let mut shell = crate::daemon::surfaces(bar).build()?;
 
     // The Slint component's own width must match the surface size above —
     // set once here rather than hardcoded in ui/bar.slint.
@@ -402,6 +403,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
 
+    crate::daemon::attach(&mut shell)?;
     shell.run()?;
     Ok(())
 }

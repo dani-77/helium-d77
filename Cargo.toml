@@ -13,7 +13,10 @@ name = "helium"
 path = "src/main.rs"
 
 [dependencies]
-helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
+# Fork with working hide()/show(), keyboard() and exclusive_zone(), and
+# ShellControl access, which helium-shell needs to host other surfaces
+# (src/daemon.rs). Back to upstream once these are merged there.
+helium-wsl = { git = "https://github.com/dani-77/helium-wsl.git", branch = "d77" }
 zbus = "4"
 zvariant = "4"
 tokio = { version = "1", features = ["rt"] }
