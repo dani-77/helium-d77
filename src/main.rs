@@ -301,6 +301,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         spawn_sibling("helium-session")
     });
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
+    shell.on_signal("Bar", "cpu_clicked", |_| spawn_monitor("cpu"));
+    shell.on_signal("Bar", "memory_clicked", |_| spawn_monitor("memory"));
     shell.on_signal("Bar", "volume_clicked", |_| toggle_mute());
     shell.on_signal("Bar", "battery_clicked", |_| cycle_power_profile());
 
@@ -412,6 +414,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// `current_exe()`'s directory), so it works both in `target/debug` during
 /// development and once installed system-wide (e.g. `/usr/bin`), as long as
 /// the sibling binary was installed to the same directory.
+fn spawn_monitor(mode: &str) {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("monitor/d77-monitor");
+    let installed = std::path::Path::new("/usr/share/helium-d77/monitor/d77-monitor");
+    let script = if installed.is_file() {
+        installed
+    } else {
+        source.as_path()
+    };
+    let _ = std::process::Command::new(script).arg(mode).spawn();
+}
+
 fn spawn_sibling(name: &str) {
     let Ok(exe) = std::env::current_exe() else {
         return;

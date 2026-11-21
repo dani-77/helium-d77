@@ -104,6 +104,8 @@ export component Bar inherits Window {
     callback launcher_clicked();
     callback session_clicked();
     callback network_clicked();
+    callback cpu_clicked();
+    callback memory_clicked();
     callback volume_clicked();
     callback battery_clicked();
 
@@ -217,9 +219,15 @@ export component Bar inherits Window {
                     TouchArea { clicked => { network_clicked(); } }
                 }
                 Divider { }
-                StatChip { width: 64px; icon: "\u{F2DB}"; value: cpu_text; highlight: true; }
+                StatChip {
+                    width: 64px; icon: "\u{F2DB}"; value: cpu_text; highlight: true;
+                    TouchArea { clicked => { cpu_clicked(); } }
+                }
                 Divider { }
-                StatChip { width: 64px; icon: "\u{F0A0}"; value: ram_text; highlight: true; }
+                StatChip {
+                    width: 64px; icon: "\u{F0A0}"; value: ram_text; highlight: true;
+                    TouchArea { clicked => { memory_clicked(); } }
+                }
                 Divider { }
                 bat_chip := StatChip {
                     // Hidden on a battery-less desktop instead of showing a

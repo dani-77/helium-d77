@@ -1,0 +1,51 @@
+* { font-family: "Inter", "Sans"; }
+window { background: transparent; }
+
+.monitor-card {
+  min-width: 620px;
+  padding: 24px;
+  border-radius: 18px;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.32);
+}
+
+.monitor-title { font-size: 23px; font-weight: 700; }
+
+.close-button, .tab {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+}
+.close-button:hover, .tab:hover { background: rgba(255, 255, 255, 0.18); }
+.close-button { font-size: 21px; min-width: 25px; }
+.tab.active { background: rgba(143, 206, 244, 0.22); font-weight: 700; }
+.tab-hint { opacity: 0.65; font-size: 11px; }
+
+.stat-card {
+  min-width: 270px;
+  min-height: 0;
+  padding: 13px 16px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.stat-title { font-size: 11px; opacity: 0.72; }
+.stat-value { font-size: 26px; font-weight: 700; }
+.stat-detail { font-size: 11px; opacity: 0.72; }
+
+.table-head {
+  padding: 0 10px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.65;
+}
+.process-scroll { min-height: 260px; }
+.process-row {
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+}
+.process-name { font-size: 12px; font-weight: 600; }
+.process-pid { font-size: 11px; opacity: 0.6; }
+.process-usage { font-size: 11px; font-weight: 700; }

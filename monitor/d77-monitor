@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+
+mode=${1:-cpu}
+case "$mode" in
+    cpu|memory|close) ;;
+    *) printf 'Usage: d77-monitor [cpu|memory|close]\n' >&2; exit 2 ;;
+esac
+
+if ! command -v eww >/dev/null 2>&1; then
+    printf 'd77-monitor: eww is required\n' >&2
+    exit 1
+fi
+if ! command -v dgop >/dev/null 2>&1; then
+    printf 'd77-monitor: dgop is required\n' >&2
+    exit 1
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -f "$script_dir/eww.yuck" ]; then
+    config_dir=$script_dir
+elif [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/d77-monitor/eww.yuck" ]; then
+    config_dir=${XDG_CONFIG_HOME:-$HOME/.config}/d77-monitor
+elif [ -f "${script_dir%/bin}/share/d77-monitor/eww.yuck" ]; then
+    config_dir=${script_dir%/bin}/share/d77-monitor
+else
+    printf 'd77-monitor: eww.yuck is missing\n' >&2
+    exit 1
+fi
+
+if ! eww --config "$config_dir" ping >/dev/null 2>&1; then
+    eww --config "$config_dir" daemon >/dev/null
+fi
+
+if [ "$mode" = close ]; then
+    eww --config "$config_dir" close d77_monitor
+    exit 0
+fi
+
+active=$(eww --config "$config_dir" active-windows 2>/dev/null || true)
+current=$(eww --config "$config_dir" get monitor_mode 2>/dev/null || true)
+if printf '%s\n' "$active" | grep -q '^d77_monitor: d77_monitor$'; then
+    if [ "$current" = "$mode" ]; then
+        eww --config "$config_dir" close d77_monitor
+    else
+        eww --config "$config_dir" update "monitor_mode=$mode"
+    fi
+else
+    eww --config "$config_dir" update "monitor_mode=$mode"
+    eww --config "$config_dir" open d77_monitor
+fi

@@ -1,0 +1,72 @@
+(defvar monitor_mode "cpu")
+
+(defpoll palette :interval "10s" :initial "{}"
+  `sh -c 'file=$HOME/.cache/d77/palette.json; if [ -n "$XDG_CACHE_HOME" ]; then file=$XDG_CACHE_HOME/d77/palette.json; fi; cat "$file" 2>/dev/null || echo "{}"'`)
+(defpoll cpu_data :interval "2s" :initial "{\"usage\":0,\"count\":0}"
+  `dgop cpu --json`)
+(defpoll memory_data :interval "2s" :initial "{\"usedPercent\":0,\"used\":0,\"total\":0}"
+  `dgop memory --json`)
+(defpoll cpu_processes :interval "2s" :initial "{\"processes\":[]}"
+  :run-while {monitor_mode == "cpu"}
+  `dgop processes --sort cpu --limit 12 --json`)
+(defpoll memory_processes :interval "2s" :initial "{\"processes\":[]}"
+  :run-while {monitor_mode == "memory"}
+  `dgop processes --sort memory --limit 12 --json`)
+
+(defwidget monitor_stat [title value detail accent]
+  (box :class "stat-card" :orientation "v" :spacing 5 :space-evenly false :valign "start"
+    (label :class "stat-title" :text title :halign "start")
+    (label :class "stat-value" :text value :halign "start" :style "color: ${accent};")
+    (label :class "stat-detail" :text detail :halign "start")))
+
+(defwidget process_row [process]
+  (box :class "process-row" :orientation "h" :spacing 8 :space-evenly false
+    (label :class "process-name" :text {process.command} :halign "start" :hexpand true :limit-width 24)
+    (label :class "process-pid" :text "${process.pid}" :width 55)
+    (label :class "process-usage" :text "${round(process.cpu, 1)}%" :width 65
+      :style "color: ${palette.green ?: '#9edbbd'};")
+    (label :class "process-usage" :text "${round(process.memoryPercent, 1)}%" :width 65
+      :style "color: ${palette.cyan ?: '#8fdfde'};")))
+
+(defwidget monitor_panel []
+  (box :class "monitor-card" :orientation "v" :spacing 16 :space-evenly false
+    :style "background-color: ${palette.bg ?: '#172331'}; color: ${palette.fg ?: '#e4effa'};"
+    (box :class "monitor-header" :orientation "h" :spacing 12 :space-evenly false
+      (box :orientation "v" :spacing 3 :hexpand true :space-evenly false
+        (label :class "monitor-title" :text "System Monitor" :halign "start"))
+      (button :class "close-button"
+        :onclick "${EWW_CMD} close d77_monitor" "×"))
+
+    (box :orientation "h" :spacing 10 :space-evenly false
+      (monitor_stat :title "CPU" :value "${round(cpu_data.usage, 1)}%"
+        :detail "${cpu_data.count} logical cores" :accent "${palette.green ?: '#9edbbd'}")
+      (monitor_stat :title "Memory" :value "${round(memory_data.usedPercent, 1)}%"
+        :detail "${round(memory_data.used / 1048576, 1)} / ${round(memory_data.total / 1048576, 1)} GiB"
+        :accent "${palette.cyan ?: '#8fdfde'}"))
+
+    (box :class "tabs" :orientation "h" :spacing 8 :space-evenly false
+      (button :class {monitor_mode == "cpu" ? "tab active" : "tab"}
+        :onclick "${EWW_CMD} update monitor_mode=cpu" "CPU")
+      (button :class {monitor_mode == "memory" ? "tab active" : "tab"}
+        :onclick "${EWW_CMD} update monitor_mode=memory" "Memory")
+      (label :class "tab-hint" :text "Sorted by ${monitor_mode == 'cpu' ? 'CPU' : 'memory'}" :hexpand true :halign "end"))
+
+    (box :class "table-head" :orientation "h" :spacing 8 :space-evenly false
+      (label :text "PROCESS" :halign "start" :hexpand true)
+      (label :text "PID" :width 55)
+      (label :text "CPU" :width 65)
+      (label :text "RAM" :width 65))
+
+    (scroll :class "process-scroll" :vexpand true :vscroll true
+      (box :orientation "v" :spacing 4 :space-evenly false
+        (for process in {monitor_mode == "cpu" ? cpu_processes.processes : memory_processes.processes}
+          (process_row :process process))))))
+
+(defwindow d77_monitor
+  :monitor 0
+  :geometry (geometry :width "680px" :height "520px" :anchor "center")
+  :stacking "overlay"
+  :exclusive false
+  :focusable true
+  :namespace "d77-monitor"
+  (monitor_panel))

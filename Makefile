@@ -31,11 +31,15 @@ install: build
 	install -d $(BINDIR)
 	$(foreach bin,$(BINS),install -Dm755 target/release/$(bin) $(BINDIR)/$(bin);)
 	install -Dm644 assets/d77-logo.svg $(SHAREDIR)/d77-logo.svg
+	install -Dm755 monitor/d77-monitor $(SHAREDIR)/monitor/d77-monitor
+	install -Dm644 monitor/eww.yuck $(SHAREDIR)/monitor/eww.yuck
+	install -Dm644 monitor/eww.scss $(SHAREDIR)/monitor/eww.scss
 	install -Dm644 pam.d/helium-locker $(PAMDIR)/helium-locker
 
 uninstall:
 	$(foreach bin,$(BINS),rm -f $(BINDIR)/$(bin);)
 	rm -f $(SHAREDIR)/d77-logo.svg
+	rm -f $(SHAREDIR)/monitor/d77-monitor $(SHAREDIR)/monitor/eww.yuck $(SHAREDIR)/monitor/eww.scss
 	rm -f $(PAMDIR)/helium-locker
 
 clean:
