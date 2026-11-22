@@ -391,7 +391,7 @@ component AppRow inherits Rectangle {{
     in property <bool> is_selected: false;
     callback clicked;
     height: row_visible ? {ROW_HEIGHT}px : 0px;
-    background: is_selected ? Theme.accent.transparentize(0.8) : Theme.bg;
+    background: is_selected ? Theme.accent_bg : Theme.bg;
     border-radius: 6px;
     border-width: is_selected ? 1px : 0px;
     border-color: Theme.accent;

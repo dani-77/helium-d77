@@ -90,8 +90,15 @@ fn persist_wallpaper(path: &str) {
     let _ = fs::write(state, path);
 }
 
+/// Leaves the state file empty rather than removing it: empty means the
+/// wallpaper was cleared, so the theme goes back to helium's own colors
+/// (src/theme.rs), while a missing file means helium never chose one.
 fn clear_persisted() {
-    let _ = fs::remove_file(state_file_path());
+    let state = state_file_path();
+    if let Some(parent) = state.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(state, "");
 }
 
 fn scan_wallpapers(dir: &Path) -> Vec<WallpaperEntry> {
@@ -634,8 +641,12 @@ export component Wallpaper inherits Window {{
     callback wallpaper_clicked(int);
     callback clear_clicked();
     callback close_requested();
+    // Released after dragging the theme slider: saves ~/.config/d77/theme-mix.
+    callback mix_changed(float);
 
     in property <int> current_index: {current_index};
+    // How much of the wallpaper's Matugen palette the theme takes, 0 to 1.
+    in-out property <float> theme_mix: {theme_mix};
 
     forward-focus: scope;
 
@@ -671,6 +682,62 @@ export component Wallpaper inherits Window {{
 
                     Rectangle {{ horizontal-stretch: 1; }}
 
+                    // Theme slider, like the other d77 shells' pickers: 0 is
+                    // helium's own colors, 1 the wallpaper's.
+                    Text {{
+                        text: "\u{{F1FC}}";
+                        color: Theme.fg_dim;
+                        font-size: 13px;
+                        font-family: "Symbols Nerd Font";
+                        vertical-alignment: center;
+                    }}
+
+                    Rectangle {{
+                        width: 120px;
+
+                        Rectangle {{
+                            y: (parent.height - self.height) / 2;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: Theme.bg_high;
+
+                            Rectangle {{
+                                x: 0;
+                                width: parent.width * root.theme_mix;
+                                border-radius: 2px;
+                                background: Theme.accent;
+                            }}
+                        }}
+
+                        Rectangle {{
+                            width: 12px;
+                            height: 12px;
+                            border-radius: 6px;
+                            x: (parent.width - self.width) * root.theme_mix;
+                            y: (parent.height - self.height) / 2;
+                            background: mix_ta.pressed ? Theme.fg : Theme.accent;
+                        }}
+
+                        mix_ta := TouchArea {{
+                            pointer-event(event) => {{
+                                if (event.kind == PointerEventKind.down || (event.kind == PointerEventKind.move && self.pressed)) {{
+                                    root.theme_mix = max(0.0, min(1.0, self.mouse-x / self.width));
+                                }} else if (event.kind == PointerEventKind.up) {{
+                                    mix_changed(root.theme_mix);
+                                }}
+                            }}
+                        }}
+                    }}
+
+                    Text {{
+                        width: 34px;
+                        text: round(root.theme_mix * 100) + "%";
+                        color: Theme.fg_dim;
+                        font-size: 11px;
+                        font-family: "Space Mono";
+                        vertical-alignment: center;
+                    }}
+
                     Text {{
                         text: "{count} wallpapers";
                         color: Theme.fg_dim;
@@ -683,13 +750,13 @@ export component Wallpaper inherits Window {{
                         width: 60px;
                         height: 26px;
                         border-radius: 6px;
-                        background: clear_ta.has-hover ? Theme.danger.transparentize(0.85) : transparent;
+                        background: clear_ta.has-hover ? Theme.danger_bg : transparent;
                         border-width: 1px;
-                        border-color: Theme.danger;
+                        border-color: Theme.danger_soft;
 
                         Text {{
                             text: "Clear";
-                            color: Theme.danger;
+                            color: Theme.danger_soft;
                             font-size: 11px;
                             font-family: "Space Grotesk";
                             horizontal-alignment: center;
@@ -724,6 +791,7 @@ export component Wallpaper inherits Window {{
 }}
 "#,
         count = images.len(),
+        theme_mix = crate::theme::mix(),
         double_padding = 2 * PADDING,
     )
 }
@@ -782,9 +850,25 @@ pub fn main(args: &[String]) -> Result<()> {
         .ok();
 
         let weak = comp.as_weak();
+        comp.set_callback("mix_changed", move |args| {
+            if let Some(Value::Number(mix)) = args.first() {
+                crate::theme::set_mix(*mix as f32);
+                // This picker's own colors now; helium-shell's follow within
+                // its next theme check.
+                if let Some(instance) = weak.upgrade() {
+                    crate::theme::apply(&instance);
+                }
+            }
+            Value::Void
+        })
+        .ok();
+
+        let weak = comp.as_weak();
         comp.set_callback("clear_clicked", move |_| {
             clear_wallpaper();
             if let Some(instance) = weak.upgrade() {
+                // Back to helium's own colors (src/theme.rs).
+                crate::theme::apply(&instance);
                 instance
                     .set_property("current_index", Value::Number(-1.0))
                     .ok();

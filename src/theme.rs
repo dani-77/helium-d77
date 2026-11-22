@@ -21,18 +21,54 @@ pub const SLINT: &str = include_str!("../ui/theme.slint");
 /// The global's name in ui/theme.slint.
 pub const GLOBAL: &str = "Theme";
 
-/// Each `Theme` property, the palette.json key it follows (the same roles
-/// Frost uses), and helium's own color for it.
-const ROLES: [(&str, &str, u32); 9] = [
-    ("bg", "bg", 0x14_14_14),
-    ("bg_dark", "bgDark", 0x0d_0d_0d),
-    ("bg_high", "bgHighlight", 0x1f_1f_1f),
-    ("line", "muted", 0x33_33_33),
-    ("fg", "fg", 0xd4_d4_d4),
-    ("fg_dim", "fgDark", 0x99_99_99),
-    ("fg_muted", "comment", 0x66_66_66),
-    ("accent", "blue", 0x76_b9_00),
-    ("danger", "red", 0xd6_45_45),
+/// Where a `Theme` color comes from in the wallpaper palette.
+enum Source {
+    /// A palette.json key (the same roles Frost uses).
+    Key(&'static str),
+    /// `tint` over `base` by `amount`: the selected-item backgrounds.
+    Tint {
+        base: &'static str,
+        tint: &'static str,
+        amount: f32,
+    },
+}
+
+/// Each `Theme` property, where it comes from in the palette, and helium's
+/// own color for it (what ui/theme.slint defaults to).
+const ROLES: [(&str, Source, u32); 17] = [
+    ("bg", Source::Key("bg"), 0x14_14_14),
+    ("bg_dark", Source::Key("bgDark"), 0x0d_0d_0d),
+    ("bg_darkest", Source::Key("bgDark"), 0x0a_0a_0a),
+    ("bg_high", Source::Key("bgHighlight"), 0x1f_1f_1f),
+    ("bg_raised", Source::Key("bgHighlight"), 0x2a_2a_2a),
+    ("line", Source::Key("muted"), 0x33_33_33),
+    ("divider", Source::Key("muted"), 0x22_22_22),
+    ("fg", Source::Key("fg"), 0xd4_d4_d4),
+    ("fg_light", Source::Key("fgDark"), 0xaa_aa_aa),
+    ("fg_dim", Source::Key("fgDark"), 0x99_99_99),
+    ("fg_soft", Source::Key("fgDark"), 0x88_88_88),
+    ("fg_muted", Source::Key("comment"), 0x66_66_66),
+    ("accent", Source::Key("blue"), 0x76_b9_00),
+    ("danger", Source::Key("red"), 0xd6_45_45),
+    ("danger_soft", Source::Key("red"), 0xf7_76_8e),
+    (
+        "accent_bg",
+        Source::Tint {
+            base: "bgDark",
+            tint: "blue",
+            amount: 0.2,
+        },
+        0x1f_33_19,
+    ),
+    (
+        "danger_bg",
+        Source::Tint {
+            base: "bgDark",
+            tint: "red",
+            amount: 0.15,
+        },
+        0x2a_14_14,
+    ),
 ];
 
 fn home() -> PathBuf {
@@ -82,37 +118,58 @@ pub fn values() -> Vec<(&'static str, Value)> {
     let palette: Option<serde_json::Value> = std::fs::read_to_string(palette_path())
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok());
-    let mix = std::fs::read_to_string(mix_path())
+    let mix = mix();
+    // helium's wallpaper state: a path, empty after Clear (no wallpaper, so
+    // no wallpaper colors), or missing when helium never chose one, in which
+    // case the palette (from another shell's wallpaper) is taken as it is.
+    let state = std::fs::read_to_string(wallpaper_state_path())
+        .ok()
+        .map(|text| text.trim().to_string());
+    let palette = palette.filter(|p| {
+        let source = p.get("source").and_then(|s| s.as_str());
+        match state.as_deref() {
+            None => true,
+            Some("") => false,
+            Some(current) => source == Some(current),
+        }
+    });
+
+    let key = |p: &serde_json::Value, key: &str| p.get(key)?.as_str().and_then(parse_hex);
+    ROLES
+        .iter()
+        .map(|(prop, source, own)| {
+            let base = rgb(*own);
+            let wall = palette
+                .as_ref()
+                .filter(|_| mix > 0.0)
+                .and_then(|p| match source {
+                    Source::Key(k) => key(p, k),
+                    Source::Tint { base, tint, amount } => {
+                        Some(lerp(key(p, base)?, key(p, tint)?, *amount))
+                    }
+                });
+            let color = wall.map_or(base, |wall| lerp(base, wall, mix));
+            (*prop, Value::Brush(Brush::SolidColor(color)))
+        })
+        .collect()
+}
+
+/// `~/.config/d77/theme-mix`, 0.0 to 1.0; 0.0 when missing.
+pub fn mix() -> f32 {
+    std::fs::read_to_string(mix_path())
         .ok()
         .and_then(|text| text.trim().parse::<f32>().ok())
         .unwrap_or(0.0)
-        .clamp(0.0, 1.0);
-    // Without a wallpaper of its own (chosen from another shell), helium takes
-    // the palette as it is.
-    let current = std::fs::read_to_string(wallpaper_state_path())
-        .ok()
-        .map(|text| text.trim().to_string())
-        .filter(|path| !path.is_empty());
-    let palette = palette.filter(
-        |p| match (&current, p.get("source").and_then(|s| s.as_str())) {
-            (Some(current), Some(source)) => current == source,
-            (None, _) => true,
-            (Some(_), None) => false,
-        },
-    );
+        .clamp(0.0, 1.0)
+}
 
-    ROLES
-        .iter()
-        .map(|&(prop, key, own)| {
-            let base = rgb(own);
-            let color = palette
-                .as_ref()
-                .filter(|_| mix > 0.0)
-                .and_then(|p| p.get(key)?.as_str().and_then(parse_hex))
-                .map_or(base, |wall| lerp(base, wall, mix));
-            (prop, Value::Brush(Brush::SolidColor(color)))
-        })
-        .collect()
+/// Saves the mix, shared with the other d77 shells' sliders.
+pub fn set_mix(mix: f32) {
+    let path = mix_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, format!("{:.2}\n", mix.clamp(0.0, 1.0)));
 }
 
 /// Applies the current colors to one component instance (the standalone

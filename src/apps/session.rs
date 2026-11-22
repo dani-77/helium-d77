@@ -109,7 +109,7 @@ component ActionButton inherits Rectangle {{
     callback clicked;
 
     width: 70px;
-    background: is_selected ? Theme.accent.transparentize(0.8) : Theme.bg;
+    background: is_selected ? Theme.accent_bg : Theme.bg;
     border-radius: 8px;
     border-width: is_selected ? 1px : 0px;
     border-color: Theme.accent;

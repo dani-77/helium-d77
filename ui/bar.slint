@@ -18,7 +18,7 @@ component Divider inherits Rectangle {
     width: 1px;
     height: 22px;
     border-width: 1px;
-    border-color: Theme.line;
+    border-color: Theme.divider;
 }
 
 // Same rule in every d77 shell: active > urgent > occupied > empty, with
@@ -39,7 +39,7 @@ component WorkspacePill inherits Rectangle {
 
     Text {
         text: label;
-        color: active || urgent ? Theme.bg_dark : Theme.fg_dim;
+        color: active || urgent ? Theme.bg_darkest : Theme.fg_light;
         font-size: 11px;
         font-family: "Space Mono";
         vertical-alignment: center;
@@ -132,7 +132,7 @@ export component Bar inherits Window {
 
                     Text {
                         text: "\u{F009}";
-                        color: Theme.fg_dim;
+                        color: Theme.fg_soft;
                         font-size: 14px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
@@ -166,7 +166,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: "\u{F0C2}";
-                    color: Theme.fg_dim;
+                    color: Theme.fg_soft;
                     font-size: 13px;
                     font-family: "Symbols Nerd Font";
                     vertical-alignment: center;
@@ -174,7 +174,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: weather_text;
-                    color: Theme.fg_dim;
+                    color: Theme.fg_soft;
                     font-size: 12px;
                     font-family: "Space Grotesk";
                     vertical-alignment: center;
@@ -271,7 +271,7 @@ export component Bar inherits Window {
 
                     Text {
                         text: "\u{F011}";
-                        color: Theme.fg_dim;
+                        color: Theme.fg_soft;
                         font-size: 14px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
