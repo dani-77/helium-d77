@@ -448,24 +448,6 @@ fn parse_locale(value: &str) -> Option<chrono::Locale> {
     chrono::Locale::try_from(name).ok()
 }
 
-#[cfg(test)]
-mod locale_tests {
-    use super::parse_locale;
-
-    #[test]
-    fn locale_names_accept_encoding_and_modifier_suffixes() {
-        assert_eq!(parse_locale("pt_PT.UTF-8"), Some(chrono::Locale::pt_PT));
-        assert_eq!(parse_locale("de_DE@euro"), Some(chrono::Locale::de_DE));
-        assert_eq!(parse_locale("C.UTF-8"), None);
-        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap();
-        assert_eq!(
-            date.format_localized("%a %d %b", chrono::Locale::pt_PT)
-                .to_string(),
-            "dom 22 nov"
-        );
-    }
-}
-
 /// Spawns `cmd` without blocking and reaps it from a short-lived thread once
 /// it exits. helium-shell lives for the whole session, so a dropped `Child`
 /// would stay a zombie until the shell itself exits.
@@ -729,4 +711,22 @@ fn current_urgent() -> Vec<u32> {
         return Vec::new();
     }
     ext_workspace::client().map_or_else(Vec::new, |client| client.urgent())
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::parse_locale;
+
+    #[test]
+    fn locale_names_accept_encoding_and_modifier_suffixes() {
+        assert_eq!(parse_locale("pt_PT.UTF-8"), Some(chrono::Locale::pt_PT));
+        assert_eq!(parse_locale("de_DE@euro"), Some(chrono::Locale::de_DE));
+        assert_eq!(parse_locale("C.UTF-8"), None);
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap();
+        assert_eq!(
+            date.format_localized("%a %d %b", chrono::Locale::pt_PT)
+                .to_string(),
+            "dom 22 nov"
+        );
+    }
 }
