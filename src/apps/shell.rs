@@ -342,7 +342,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         ctx.set(
             "Bar",
             "clock_text",
-            helium_wsl::services::time::formatted("%a %d %b  %H:%M:%S"),
+            chrono::Local::now()
+                .format_localized("%a %d %b  %H:%M:%S", time_locale())
+                .to_string(),
         );
         apply_workspaces_ctx(ctx, &current_workspaces());
         if let Some(pct) = sysinfo::cpu_usage_percent(&mut prev_cpu) {
@@ -423,6 +425,27 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     crate::daemon::attach(&mut shell, session_actions)?;
     shell.run()?;
     Ok(())
+}
+
+/// The time locale from LC_ALL, LC_TIME or LANG, for the clock's day and
+/// month names (as in Frost); English (POSIX) when unset or unknown.
+fn time_locale() -> chrono::Locale {
+    static LOCALE: std::sync::OnceLock<chrono::Locale> = std::sync::OnceLock::new();
+    *LOCALE.get_or_init(|| {
+        ["LC_ALL", "LC_TIME", "LANG"]
+            .into_iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .find(|value| !value.is_empty())
+            .and_then(|value| parse_locale(&value))
+            .unwrap_or(chrono::Locale::POSIX)
+    })
+}
+
+/// "pt_PT.UTF-8" or "de_DE@euro" -> the chrono locale; None for "C" and the
+/// like.
+fn parse_locale(value: &str) -> Option<chrono::Locale> {
+    let name = value.split(['.', '@']).next()?;
+    chrono::Locale::try_from(name).ok()
 }
 
 /// Spawns `cmd` without blocking and reaps it from a short-lived thread once
@@ -688,4 +711,22 @@ fn current_urgent() -> Vec<u32> {
         return Vec::new();
     }
     ext_workspace::client().map_or_else(Vec::new, |client| client.urgent())
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::parse_locale;
+
+    #[test]
+    fn locale_names_accept_encoding_and_modifier_suffixes() {
+        assert_eq!(parse_locale("pt_PT.UTF-8"), Some(chrono::Locale::pt_PT));
+        assert_eq!(parse_locale("de_DE@euro"), Some(chrono::Locale::de_DE));
+        assert_eq!(parse_locale("C.UTF-8"), None);
+        let date = chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap();
+        assert_eq!(
+            date.format_localized("%a %d %b", chrono::Locale::pt_PT)
+                .to_string(),
+            "dom 22 nov"
+        );
+    }
 }

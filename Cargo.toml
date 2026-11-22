@@ -1,6 +1,6 @@
 [package]
 name = "helium-shell"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "A Wayland shell built with the Helium shell framework"
 authors = ["Daniel Azevedo", "dani-77 <daniazevedo77@posteo.net>"]
@@ -47,6 +47,9 @@ env_logger = "0.11"
 # Wallpaper thumbnails (src/apps/wallpaper.rs). Already in the tree through
 # Slint, with the same features.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Day and month names in the system language (the clock, src/apps/shell.rs).
+# Already in the tree through helium-wsl.
+chrono = { version = "0.4", default-features = false, features = ["clock", "unstable-locales"] }
 
 # Fat LTO, one codegen unit and strip keep the single binary small (about
 # 21 MB). opt-level stays at 3: "s" saved a few MB but made image decoding
