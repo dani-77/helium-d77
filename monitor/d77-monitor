@@ -1,18 +1,145 @@
 #!/bin/sh
 set -eu
 
+# The panel's data comes from dgop, or from atop where there's no dgop
+# (Chimera Linux, for one). `d77-monitor data <what>` prints it as dgop's
+# JSON, whichever backend is used, so eww.yuck reads one format.
+# D77_MONITOR_BACKEND=dgop or =atop picks one instead.
+
+usage() {
+    printf 'Usage: d77-monitor [cpu|memory|close]\n' >&2
+    exit 2
+}
+
+# awk prints its numbers as JSON needs them, with a decimal point.
+LC_ALL=C
+export LC_ALL
+
+# One atop sample over a second, in its parseable format: the first sample
+# atop prints covers the time since boot, so only the second one is kept.
+atop_sample() {
+    atop -P "$1" 1 2 | awk '/^SEP/ { n++; next } n == 1'
+}
+
+atop_cpu() {
+    atop_sample CPU | awk '
+        # CPU host epoch date time interval hertz ncpu sys user nice idle
+        # wait irq softirq steal ...
+        $1 == "CPU" {
+            total = $9 + $10 + $11 + $12 + $13 + $14 + $15 + $16
+            usage = total > 0 ? (total - $12 - $13) * 100 / total : 0
+            printf "{\"usage\":%.2f,\"count\":%d}\n", usage, $8
+        }'
+}
+
+atop_memory() {
+    atop_sample MEM | awk '
+        # MEM host epoch date time interval pagesize physmem freemem cache
+        # buffer slab dirty reclaimable ..., all but pagesize in pages.
+        $1 == "MEM" {
+            kb = $7 / 1024
+            total = $8 * kb
+            used = ($8 - $9 - $10 - $11 - $14) * kb
+            if (used < 0) used = 0
+            printf "{\"usedPercent\":%.2f,\"used\":%d,\"total\":%d}\n",
+                (total > 0 ? used * 100 / total : 0), used, total
+        }'
+}
+
+# The 12 processes using the most `$1` (cpu or memory).
+atop_processes() {
+    total_kb=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+    atop_sample PRC,PRM | awk -v sort="$1" -v total_kb="${total_kb:-0}" '
+        function json(s) {
+            gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s)
+            return s
+        }
+        # PRC/PRM host epoch date time interval pid (name) state ...: the
+        # name can hold spaces, so the fields after it are split apart.
+        ($1 == "PRC" || $1 == "PRM") {
+            open = index($0, "(")
+            if (!match(substr($0, open), /\) [A-Za-z] /)) next
+            name = substr($0, open + 1, RSTART - 2)
+            nf = split(substr($0, open + RSTART + 1), f, " ")
+            pid = $7
+            if ($1 == "PRC") {
+                # state hertz utime stime nice prio rtprio policy curcpu
+                # sleepavg tgid is-process
+                if (f[12] != "y") next
+                cpu[pid] = (f[3] + f[4]) * 100 / (f[2] * $6)
+            } else {
+                # state pagesize vmem rmem(KB) ... tgid(14) is-process(15)
+                if (f[15] != "y") next
+                mem[pid] = total_kb > 0 ? f[4] * 100 / total_kb : 0
+            }
+            names[pid] = name
+        }
+        END {
+            n = 0
+            for (pid in names) {
+                n++
+                ids[n] = pid
+                key[n] = sort == "cpu" ? cpu[pid] + 0 : mem[pid] + 0
+            }
+            # Selection sort of the top 12 is enough for a few hundred pids.
+            limit = n < 12 ? n : 12
+            printf "{\"processes\":["
+            for (i = 1; i <= limit; i++) {
+                best = i
+                for (j = i + 1; j <= n; j++)
+                    if (key[j] > key[best]) best = j
+                t = ids[i]; ids[i] = ids[best]; ids[best] = t
+                t = key[i]; key[i] = key[best]; key[best] = t
+                pid = ids[i]
+                printf "%s{\"pid\":%d,\"command\":\"%s\",\"cpu\":%.2f,\"memoryPercent\":%.2f}",
+                    (i > 1 ? "," : ""), pid, json(names[pid]), cpu[pid] + 0, mem[pid] + 0
+            }
+            printf "]}\n"
+        }'
+}
+
+has() {
+    case "${D77_MONITOR_BACKEND:-}" in
+        ''|"$1") command -v "$1" >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+
+data() {
+    if has dgop; then
+        case "$1" in
+            cpu) exec dgop cpu --json ;;
+            memory) exec dgop memory --json ;;
+            processes-cpu) exec dgop processes --sort cpu --limit 12 --json ;;
+            processes-memory) exec dgop processes --sort memory --limit 12 --json ;;
+        esac
+    elif has atop; then
+        case "$1" in
+            cpu) atop_cpu ;;
+            memory) atop_memory ;;
+            processes-cpu) atop_processes cpu ;;
+            processes-memory) atop_processes memory ;;
+        esac
+    fi
+}
+
 mode=${1:-cpu}
 case "$mode" in
+    data)
+        case "${2:-}" in
+            cpu|memory|processes-cpu|processes-memory) data "$2"; exit 0 ;;
+            *) usage ;;
+        esac ;;
     cpu|memory|close) ;;
-    *) printf 'Usage: d77-monitor [cpu|memory|close]\n' >&2; exit 2 ;;
+    *) usage ;;
 esac
 
 if ! command -v eww >/dev/null 2>&1; then
     printf 'd77-monitor: eww is required\n' >&2
     exit 1
 fi
-if ! command -v dgop >/dev/null 2>&1; then
-    printf 'd77-monitor: dgop is required\n' >&2
+if ! has dgop && ! has atop; then
+    printf 'd77-monitor: dgop or atop is required\n' >&2
     exit 1
 fi
 
@@ -27,6 +154,11 @@ else
     printf 'd77-monitor: eww.yuck is missing\n' >&2
     exit 1
 fi
+
+# eww.yuck's polls run `d77-monitor data ...` through this variable, so
+# they find this very script even when it isn't in $PATH.
+D77_MONITOR="$script_dir/$(basename -- "$0")"
+export D77_MONITOR
 
 if ! eww --config "$config_dir" ping >/dev/null 2>&1; then
     eww --config "$config_dir" daemon >/dev/null

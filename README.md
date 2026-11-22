@@ -28,7 +28,7 @@ feel consistent across all three.
 - **A status bar** at the top of the screen showing your workspaces, the
   weather, the date and time, your network status, CPU/RAM usage, battery
   level, and volume — all at a glance.
-- **A centered system monitor** — click CPU or RAM to toggle the shared Eww panel, backed by `dgop` and the Matugen palette.
+- **A centered system monitor** — click CPU or RAM to toggle the shared Eww panel, backed by `dgop` (or `atop` where there is no `dgop`) and the Matugen palette.
 - **An app launcher** — press a key (or click the bar) to search and open any
   installed application.
 - **A wallpaper picker** — browse your wallpaper folder as a grid of
@@ -69,7 +69,7 @@ On **Void Linux**, an `xbps-src` template lives in
    sudo make install
    ```
 
-   This installs the bar and its companion tools to `/usr/bin`, plus the monitor script and Eww configuration under `/usr/share/helium-d77/monitor`. The monitor requires `eww` and `dgop`. To remove
+   This installs the bar and its companion tools to `/usr/bin`, plus the monitor script and Eww configuration under `/usr/share/helium-d77/monitor`. The monitor requires `eww` and `dgop`, or `atop` in its place. To remove
    everything later:
 
    ```sh
