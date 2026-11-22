@@ -255,7 +255,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // root, which breaks the moment the binary is installed system-wide
     // (e.g. /usr/bin/helium-shell) and run from anywhere else, or autostarted
     // by the compositor with an unrelated working directory.
-    let mut shell = Helium::from_source(include_str!("../../ui/bar.slint"))
+    // ui/bar.slint plus the surfaces helium-shell hosts (src/daemon.rs).
+    let session_actions = std::rc::Rc::new(crate::apps::session::actions());
+    let bar = Helium::from_source(crate::daemon::source(&session_actions))
         .surface("Bar")
         .size(bar_width, 36)
         .anchor((AnchorEdge::Top, AnchorEdge::Left, AnchorEdge::Right))
@@ -263,8 +265,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Hyprland adds the surface's own top margin on top of this value,
         // so the exclusive zone only needs to cover the bar's height itself.
         .exclusive_zone(36)
-        .layer(Layer::Top)
-        .build()?;
+        .layer(Layer::Top);
+    let mut shell = crate::daemon::surfaces(bar).build()?;
 
     // The Slint component's own width must match the surface size above —
     // set once here rather than hardcoded in ui/bar.slint.
@@ -286,15 +288,18 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Clicking the apps icon / power icon spawns the sibling launcher /
-    // session-menu binaries (spawn-on-demand, like rofi — see their doc
-    // comments for why they're separate processes instead of toggled panels
-    // inside this one).
+    // The launcher and the session menu are helium-shell's own surfaces
+    // (src/daemon.rs), toggled through its IPC socket like `helium launcher`
+    // and `helium session` do. Without the socket, the standalone ones.
     shell.on_signal("Bar", "launcher_clicked", |_| {
-        spawn_sibling("helium-launcher")
+        if crate::ipc::send("launcher").is_err() {
+            spawn_sibling("helium-launcher");
+        }
     });
     shell.on_signal("Bar", "session_clicked", |_| {
-        spawn_sibling("helium-session")
+        if crate::ipc::send("session").is_err() {
+            spawn_sibling("helium-session");
+        }
     });
     shell.on_signal("Bar", "network_clicked", |_| launch_nmtui());
     shell.on_signal("Bar", "cpu_clicked", |_| spawn_monitor("cpu"));
@@ -316,7 +321,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // sidesteps that upstream bug entirely: each tick is a fresh,
     // self-consistent read.
     let mut prev_cpu = None;
+    let mut bar_width = bar_width;
+    let mut ticks: u32 = 0;
     shell.on_tick(Duration::from_secs(1), move |ctx| {
+        // Follows the monitor's logical width, which changes with the
+        // compositor's scale, every few seconds: the surface keeps the size
+        // it was created with unless resized.
+        ticks = ticks.wrapping_add(1);
+        if ticks.is_multiple_of(3) {
+            let width = primary_monitor_width().saturating_sub(2 * MARGIN);
+            if width > 0 && width != bar_width {
+                bar_width = width;
+                let _ = ctx.control().surface_by_name("Bar").resize(bar_width, 36);
+            }
+        }
         ctx.set("Bar", "bar_width", bar_width as i32);
         if let Some(text) = weather_seed.take() {
             ctx.set("Bar", "weather_text", text);
@@ -402,6 +420,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
 
+    crate::daemon::attach(&mut shell, session_actions)?;
     shell.run()?;
     Ok(())
 }

@@ -4,7 +4,7 @@
 // directly (not pushed from the bar's click handlers), so it also reacts to
 // changes made outside the bar itself — e.g. hardware media keys.
 //
-// Palette matches ui/bar.slint: #141414/#0d0d0d backgrounds, #76b900 accent,
+// Colors come from the Theme global (ui/theme.slint), like ui/bar.slint;
 // "Space Grotesk"/"Space Mono" body fonts, "Symbols Nerd Font" icons.
 
 export component Osd inherits Window {
@@ -19,10 +19,10 @@ export component Osd inherits Window {
     in property <bool> show_progress: true;
 
     Rectangle {
-        background: #141414;
+        background: Theme.bg;
         border-radius: 12px;
         border-width: 1px;
-        border-color: #333;
+        border-color: Theme.line;
         clip: true;
 
         HorizontalLayout {
@@ -31,7 +31,7 @@ export component Osd inherits Window {
 
             Text {
                 text: root.glyph;
-                color: #76b900;
+                color: Theme.accent;
                 font-size: 22px;
                 font-family: "Symbols Nerd Font";
                 vertical-alignment: center;
@@ -43,7 +43,7 @@ export component Osd inherits Window {
 
                 Text {
                     text: root.label;
-                    color: #d4d4d4;
+                    color: Theme.fg;
                     font-size: 13px;
                     font-family: "Space Grotesk";
                     vertical-alignment: center;
@@ -53,14 +53,14 @@ export component Osd inherits Window {
                 Rectangle {
                     visible: root.show_progress;
                     height: 4px;
-                    background: #2a2a2a;
+                    background: Theme.bg_raised;
                     border-radius: 2px;
 
                     Rectangle {
                         x: 0;
                         width: parent.width * root.level;
                         height: 100%;
-                        background: #76b900;
+                        background: Theme.accent;
                         border-radius: 2px;
                     }
                 }

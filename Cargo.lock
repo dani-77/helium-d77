@@ -1595,6 +1595,7 @@ version = "0.4.0"
 dependencies = [
  "env_logger",
  "helium-wsl",
+ "image",
  "layer-shika",
  "libc",
  "pam-client2",
@@ -1611,7 +1612,7 @@ dependencies = [
 [[package]]
 name = "helium-wsl"
 version = "0.2.3"
-source = "git+https://github.com/zepyxunderscore/helium-wsl.git#a644099dbfaeced656fd154b16755c3a95bcd761"
+source = "git+https://github.com/dani-77/helium-wsl.git?branch=d77#e97b10dc549273f93212a02ebca9d79a50344e5a"
 dependencies = [
  "chrono",
  "helium-wsl-macros",
@@ -1628,7 +1629,7 @@ dependencies = [
 [[package]]
 name = "helium-wsl-macros"
 version = "0.2.3"
-source = "git+https://github.com/zepyxunderscore/helium-wsl.git#a644099dbfaeced656fd154b16755c3a95bcd761"
+source = "git+https://github.com/dani-77/helium-wsl.git?branch=d77#e97b10dc549273f93212a02ebca9d79a50344e5a"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -1,0 +1,26 @@
+// Colors every helium surface uses. The defaults are helium's own palette;
+// src/theme.rs replaces them with the shared Matugen wallpaper palette
+// (~/.cache/d77/palette.json), blended by ~/.config/d77/theme-mix, like the
+// other d77 shells.
+export global Theme {
+    in-out property <color> bg: #141414;
+    in-out property <color> bg_dark: #0d0d0d;
+    in-out property <color> bg_high: #1f1f1f;
+    in-out property <color> line: #333333;
+    in-out property <color> fg: #d4d4d4;
+    in-out property <color> fg_dim: #999999;
+    in-out property <color> fg_muted: #666666;
+    in-out property <color> accent: #76b900;
+    in-out property <color> danger: #d64545;
+    // Shades helium used side by side with the ones above, kept apart so
+    // helium's own colors stay exactly as they were.
+    in-out property <color> bg_darkest: #0a0a0a;
+    in-out property <color> bg_raised: #2a2a2a;
+    in-out property <color> divider: #222222;
+    in-out property <color> fg_soft: #888888;
+    in-out property <color> fg_light: #aaaaaa;
+    in-out property <color> danger_soft: #f7768e;
+    // Selected items and the Clear button's hover.
+    in-out property <color> accent_bg: #1f3319;
+    in-out property <color> danger_bg: #2a1414;
+}

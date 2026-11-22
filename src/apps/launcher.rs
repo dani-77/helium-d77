@@ -20,16 +20,17 @@
 //! surface from inside it.
 
 use layer_shika::prelude::*;
-use layer_shika::slint::{ModelRc, VecModel};
-use layer_shika::slint_interpreter::{ComponentHandle, ComponentInstance, Value};
+use layer_shika::slint::{Image, ModelRc, VecModel};
+use layer_shika::slint_interpreter::{ComponentHandle, ComponentInstance, Struct, Value};
 use std::cell::RefCell;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
+use std::time::SystemTime;
 
-struct AppEntry {
+pub struct AppEntry {
     name: String,
     exec: String,
     terminal: bool,
@@ -173,14 +174,18 @@ fn clean_exec(raw: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn scan_apps() -> Vec<AppEntry> {
+/// Where desktop entries are read from.
+fn app_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("/usr/share/applications")];
     if let Ok(home) = std::env::var("HOME") {
         dirs.push(PathBuf::from(home).join(".local/share/applications"));
     }
+    dirs
+}
 
+fn scan_apps() -> Vec<AppEntry> {
     let mut apps = Vec::new();
-    for dir in dirs {
+    for dir in app_dirs() {
         let Ok(entries) = fs::read_dir(&dir) else {
             continue;
         };
@@ -227,7 +232,13 @@ fn launch_app(app: &AppEntry, terminal: &str) {
     } else {
         Command::new("sh").arg("-c").arg(&app.exec).spawn()
     };
-    let _ = spawn_result;
+    // Reaped from a thread: hosted in helium-shell, this process outlives
+    // the app's `sh`, which would otherwise stay a zombie.
+    if let Ok(mut child) = spawn_result {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 /// Indices of `apps` whose name loosely (case-insensitive substring)
@@ -260,8 +271,10 @@ fn push_filter_state(instance: &ComponentInstance, apps: &[AppEntry], query: &st
 const ROW_HEIGHT: u32 = 32;
 const ROW_SPACING: u32 = 2;
 const SEARCH_HEIGHT: u32 = 36;
-const WINDOW_WIDTH: u32 = 380;
-const WINDOW_HEIGHT: u32 = 480;
+pub const WINDOW_WIDTH: u32 = 380;
+pub const WINDOW_HEIGHT: u32 = 480;
+/// Below the bar, horizontally centered.
+pub const TOP_MARGIN: i32 = 56;
 const LAYOUT_PADDING: u32 = 8;
 const LAYOUT_SPACING: u32 = 4;
 /// Actual rendered height of the Flickable row list: the window minus the
@@ -289,31 +302,39 @@ fn row_extent(visible: &[usize], selected_index: i32) -> (f32, f32) {
     (y_top, y_top + ROW_HEIGHT as f32)
 }
 
-/// Nudges `list_scroll_y` (if needed) so the selected row is fully inside
-/// the visible list area — mimicking what dragging the list with the mouse
-/// would achieve, but from Up/Down/typing instead.
-fn scroll_selected_into_view(instance: &ComponentInstance, visible: &[usize], selected_index: i32) {
+/// The `list_scroll_y` that brings the selected row fully inside the
+/// visible list area, from the `current` one — mimicking what dragging the
+/// list with the mouse would achieve, but from Up/Down/typing instead.
+/// `None` when it's already in view.
+fn scroll_into_view(current: f32, visible: &[usize], selected_index: i32) -> Option<f32> {
     if selected_index < 0 {
-        return;
+        return None;
     }
+    let (y_top, y_bottom) = row_extent(visible, selected_index);
+    let viewport_h = LIST_VIEWPORT_HEIGHT as f32;
+    if y_top < -current {
+        Some(-y_top)
+    } else if y_bottom > -current + viewport_h {
+        Some(-(y_bottom - viewport_h))
+    } else {
+        None
+    }
+}
+
+/// Nudges `list_scroll_y` (if needed) so the selected row is fully inside
+/// the visible list area.
+fn scroll_selected_into_view(instance: &ComponentInstance, visible: &[usize], selected_index: i32) {
     let Some(Value::Number(current)) = instance.get_property("list_scroll_y").ok() else {
         return;
     };
-    let (y_top, y_bottom) = row_extent(visible, selected_index);
-    let viewport_h = LIST_VIEWPORT_HEIGHT as f32;
-    let current = current as f32;
-    let new_scroll = if y_top < -current {
-        -y_top
-    } else if y_bottom > -current + viewport_h {
-        -(y_bottom - viewport_h)
-    } else {
-        return;
-    };
-    instance
-        .set_property("list_scroll_y", Value::Number(new_scroll as f64))
-        .ok();
+    if let Some(new_scroll) = scroll_into_view(current as f32, visible, selected_index) {
+        instance
+            .set_property("list_scroll_y", Value::Number(f64::from(new_scroll)))
+            .ok();
+    }
 }
 
+/// The standalone launcher's Slint source, with every app baked in.
 fn build_slint_source(apps: &[AppEntry]) -> String {
     let mut rows = String::new();
     for (i, app) in apps.iter().enumerate() {
@@ -334,8 +355,35 @@ fn build_slint_source(apps: &[AppEntry]) -> String {
     let init_visible = vec!["true"; apps.len()].join(", ");
     let init_selected: i32 = if apps.is_empty() { -1 } else { 0 };
 
+    launcher_source(
+        "",
+        &format!(
+            "in property <[bool]> row_visible: [{init_visible}];\n    in property <int> selected_index: {init_selected};"
+        ),
+        &format!("{}px", apps.len() as u32 * (ROW_HEIGHT + ROW_SPACING)),
+        &rows,
+    )
+}
+
+/// The Slint source helium-shell hosts: the app list comes in at runtime as
+/// the `apps` model, so apps installed later show up without recompiling
+/// the UI.
+pub fn hosted_slint_source() -> String {
+    launcher_source(
+        "export struct LauncherApp {\n    name: string,\n    icon: image,\n}\n",
+        "in property <[LauncherApp]> apps;\n    in property <[bool]> row_visible;\n    in property <int> selected_index: -1;",
+        &format!("root.apps.length * {}px", ROW_HEIGHT + ROW_SPACING),
+        "        for app[i] in root.apps : AppRow { icon_img: app.icon; label: app.name; row_visible: root.row_visible[i]; is_selected: root.selected_index == i; clicked => { app_clicked(i); } }",
+    )
+}
+
+/// The launcher component around `rows`. `prelude` goes before it (struct
+/// definitions), `props` into it (the list's properties), and
+/// `viewport_height` is the list's scrollable height expression.
+fn launcher_source(prelude: &str, props: &str, viewport_height: &str, rows: &str) -> String {
     format!(
         r#"
+{prelude}
 component AppRow inherits Rectangle {{
     in property <string> label: "";
     in property <image> icon_img;
@@ -343,10 +391,10 @@ component AppRow inherits Rectangle {{
     in property <bool> is_selected: false;
     callback clicked;
     height: row_visible ? {ROW_HEIGHT}px : 0px;
-    background: is_selected ? #1f3319 : #141414;
+    background: is_selected ? Theme.accent_bg : Theme.bg;
     border-radius: 6px;
     border-width: is_selected ? 1px : 0px;
-    border-color: #76b900;
+    border-color: Theme.accent;
     clip: true;
 
     HorizontalLayout {{
@@ -362,7 +410,7 @@ component AppRow inherits Rectangle {{
 
         Text {{
             text: label;
-            color: #d4d4d4;
+            color: Theme.fg;
             font-size: 13px;
             font-family: "Space Grotesk";
             overflow: elide;
@@ -383,14 +431,15 @@ export component Launcher inherits Window {{
     callback query_changed(string);
     callback navigate(int);
 
-    in property <[bool]> row_visible: [{init_visible}];
-    in property <int> selected_index: {init_selected};
+    {props}
     in-out property <length> list_scroll_y: 0px;
+    // So helium-shell can clear the search field each time it opens.
+    in-out property <string> query <=> search_input.text;
 
     forward-focus: search_input;
 
     Rectangle {{
-        background: #0d0d0d;
+        background: Theme.bg_dark;
         border-radius: 14px;
         clip: true;
 
@@ -400,7 +449,7 @@ export component Launcher inherits Window {{
 
             Rectangle {{
                 height: {SEARCH_HEIGHT}px;
-                background: #1f1f1f;
+                background: Theme.bg_high;
                 border-radius: 6px;
                 clip: true;
 
@@ -411,14 +460,14 @@ export component Launcher inherits Window {{
 
                     Text {{
                         text: "\u{{F002}}";
-                        color: #76b900;
+                        color: Theme.accent;
                         font-size: 13px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
                     }}
 
                     search_input := TextInput {{
-                        color: #d4d4d4;
+                        color: Theme.fg;
                         font-size: 13px;
                         font-family: "Space Grotesk";
                         vertical-alignment: center;
@@ -454,7 +503,7 @@ export component Launcher inherits Window {{
 
             Flickable {{
                 vertical-stretch: 1;
-                viewport-height: {rows_height}px;
+                viewport-height: {viewport_height};
                 viewport-y <=> root.list_scroll_y;
 
                 VerticalLayout {{
@@ -465,17 +514,22 @@ export component Launcher inherits Window {{
         }}
     }}
 }}
-"#,
-        rows_height = apps.len() as u32 * (ROW_HEIGHT + ROW_SPACING),
+"#
     )
 }
 
 pub fn main() -> Result<()> {
+    // helium-shell hosts the launcher (src/daemon.rs): toggle that one, the
+    // same way kantele and the bar do.
+    if crate::ipc::daemon_running() && crate::ipc::send("launcher").is_ok() {
+        return Ok(());
+    }
+
     let apps = Rc::new(scan_apps());
     let terminal = Rc::new(detect_terminal());
     let source = build_slint_source(&apps);
 
-    let mut shell = Shell::from_source(source)
+    let mut shell = Shell::from_source(crate::theme::with_theme(&source))
         .surface("Launcher")
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .anchor(AnchorEdges::empty().with_top())
@@ -491,6 +545,7 @@ pub fn main() -> Result<()> {
     let selected_state = Rc::new(RefCell::new(if apps.is_empty() { -1i32 } else { 0i32 }));
 
     shell.with_surface("Launcher", |comp| {
+        crate::theme::apply(comp);
         let weak = comp.as_weak();
         let (apps_q, query_q, selected_q) =
             (apps.clone(), query_state.clone(), selected_state.clone());
@@ -559,4 +614,143 @@ pub fn main() -> Result<()> {
 
     shell.run()?;
     Ok(())
+}
+
+// ---- Hosted in helium-shell (src/daemon.rs) ---------------------------------
+
+/// Modification times of the application directories: adding or removing a
+/// desktop entry changes them, so the list is only rescanned when they do.
+fn dirs_stamp() -> Vec<Option<SystemTime>> {
+    app_dirs()
+        .iter()
+        .map(|dir| fs::metadata(dir).and_then(|m| m.modified()).ok())
+        .collect()
+}
+
+/// The launcher helium-shell hosts: the app list, scanned once and kept until
+/// an application directory changes, with each icon loaded once; plus the
+/// search query and selection the Slint callbacks update.
+pub struct HostedLauncher {
+    apps: Vec<AppEntry>,
+    icons: Vec<Image>,
+    stamp: Option<Vec<Option<SystemTime>>>,
+    terminal: Option<String>,
+    query: String,
+    selected: i32,
+}
+
+impl HostedLauncher {
+    pub fn new() -> Self {
+        Self {
+            apps: Vec::new(),
+            icons: Vec::new(),
+            stamp: None,
+            terminal: None,
+            query: String::new(),
+            selected: -1,
+        }
+    }
+
+    /// Rescans the desktop entries if an application directory changed since
+    /// the last scan. Returns whether the list was rescanned, i.e. whether
+    /// the `apps` model has to be pushed again.
+    pub fn refresh(&mut self) -> bool {
+        let stamp = dirs_stamp();
+        if self.stamp.as_ref() == Some(&stamp) {
+            return false;
+        }
+        self.apps = scan_apps();
+        self.icons = self
+            .apps
+            .iter()
+            .map(|app| {
+                app.icon
+                    .as_deref()
+                    .and_then(|path| Image::load_from_path(Path::new(path)).ok())
+                    .unwrap_or_default()
+            })
+            .collect();
+        self.stamp = Some(stamp);
+        true
+    }
+
+    /// The `apps` model: name and icon of every app.
+    pub fn apps_value(&self) -> Value {
+        let items: Vec<Value> = self
+            .apps
+            .iter()
+            .zip(&self.icons)
+            .map(|(app, icon)| {
+                let fields: Struct = [
+                    ("name".to_string(), Value::String(app.name.clone().into())),
+                    ("icon".to_string(), Value::Image(icon.clone())),
+                ]
+                .into_iter()
+                .collect();
+                Value::Struct(fields)
+            })
+            .collect();
+        Value::Model(ModelRc::new(VecModel::from(items)))
+    }
+
+    /// Back to an empty search with the first app selected, as each opening
+    /// of the standalone launcher started.
+    pub fn reset(&mut self) {
+        self.query.clear();
+        self.selected = if self.apps.is_empty() { -1 } else { 0 };
+    }
+
+    pub fn set_query(&mut self, query: &str) {
+        self.query = query.to_string();
+        self.selected = self.visible().first().map_or(-1, |&i| i as i32);
+    }
+
+    /// Moves the selection by `delta` among the matching apps, wrapping.
+    pub fn navigate(&mut self, delta: i32) {
+        let visible = self.visible();
+        if visible.is_empty() {
+            return;
+        }
+        let pos = visible
+            .iter()
+            .position(|&i| i as i32 == self.selected)
+            .unwrap_or(0) as i32;
+        let len = visible.len() as i32;
+        let new_pos = ((pos + delta) % len + len) % len;
+        self.selected = visible[new_pos as usize] as i32;
+    }
+
+    /// Launches the app at `index` (-1 is Escape: nothing to launch).
+    pub fn launch(&mut self, index: i32) {
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        if let Some(app) = self.apps.get(index) {
+            let terminal = self.terminal.get_or_insert_with(detect_terminal);
+            launch_app(app, terminal);
+        }
+    }
+
+    pub fn selected(&self) -> i32 {
+        self.selected
+    }
+
+    /// The `row_visible` model for the current query.
+    pub fn row_visible_value(&self) -> Value {
+        let visible = self.visible();
+        let flags: Vec<Value> = (0..self.apps.len())
+            .map(|i| Value::Bool(visible.contains(&i)))
+            .collect();
+        Value::Model(ModelRc::new(VecModel::from(flags)))
+    }
+
+    /// The `list_scroll_y` that keeps the selected row in view, from the
+    /// `current` one; `None` when it already is.
+    pub fn scroll(&self, current: f32) -> Option<f32> {
+        scroll_into_view(current, &self.visible(), self.selected)
+    }
+
+    fn visible(&self) -> Vec<usize> {
+        visible_indices(&self.apps, &self.query)
+    }
 }

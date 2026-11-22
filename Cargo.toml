@@ -13,7 +13,10 @@ name = "helium"
 path = "src/main.rs"
 
 [dependencies]
-helium-wsl = { git = "https://github.com/zepyxunderscore/helium-wsl.git" }
+# Fork with working hide()/show(), keyboard() and exclusive_zone(), and
+# ShellControl access, which helium-shell needs to host other surfaces
+# (src/daemon.rs). Back to upstream once these are merged there.
+helium-wsl = { git = "https://github.com/dani-77/helium-wsl.git", branch = "d77" }
 zbus = "4"
 zvariant = "4"
 tokio = { version = "1", features = ["rt"] }
@@ -41,13 +44,14 @@ smithay-client-toolkit = "0.20"
 slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "renderer-software", "software-renderer-systemfonts"] }
 libc = "0.2"
 env_logger = "0.11"
+# Wallpaper thumbnails (src/apps/wallpaper.rs). Already in the tree through
+# Slint, with the same features.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
-# Smaller binaries: every helium-* binary carries its own copy of Slint,
-# helium-wsl, layer-shika, tokio and zbus, so size dominates. Measured on
-# 0.4.0: 204 MB -> 139 MB for the eight binaries, at the cost of a slower
-# release build (about 5 minutes on 16 cores).
+# Fat LTO, one codegen unit and strip keep the single binary small (about
+# 21 MB). opt-level stays at 3: "s" saved a few MB but made image decoding
+# several times slower, and the wallpaper picker took ~1 s per wallpaper.
 [profile.release]
 lto = "fat"
 codegen-units = 1
-opt-level = "s"
 strip = true
