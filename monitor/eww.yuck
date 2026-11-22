@@ -3,15 +3,15 @@
 (defpoll palette :interval "10s" :initial "{}"
   `sh -c 'file=$HOME/.cache/d77/palette.json; if [ -n "$XDG_CACHE_HOME" ]; then file=$XDG_CACHE_HOME/d77/palette.json; fi; cat "$file" 2>/dev/null || echo "{}"'`)
 (defpoll cpu_data :interval "2s" :initial "{\"usage\":0,\"count\":0}"
-  `dgop cpu --json`)
+  `"$D77_MONITOR" data cpu 2>/dev/null || d77-monitor data cpu`)
 (defpoll memory_data :interval "2s" :initial "{\"usedPercent\":0,\"used\":0,\"total\":0}"
-  `dgop memory --json`)
+  `"$D77_MONITOR" data memory 2>/dev/null || d77-monitor data memory`)
 (defpoll cpu_processes :interval "2s" :initial "{\"processes\":[]}"
   :run-while {monitor_mode == "cpu"}
-  `dgop processes --sort cpu --limit 12 --json`)
+  `"$D77_MONITOR" data processes-cpu 2>/dev/null || d77-monitor data processes-cpu`)
 (defpoll memory_processes :interval "2s" :initial "{\"processes\":[]}"
   :run-while {monitor_mode == "memory"}
-  `dgop processes --sort memory --limit 12 --json`)
+  `"$D77_MONITOR" data processes-memory 2>/dev/null || d77-monitor data processes-memory`)
 
 (defwidget monitor_stat [title value detail accent]
   (box :class "stat-card" :orientation "v" :spacing 5 :space-evenly false :valign "start"
