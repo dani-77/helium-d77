@@ -391,10 +391,10 @@ component AppRow inherits Rectangle {{
     in property <bool> is_selected: false;
     callback clicked;
     height: row_visible ? {ROW_HEIGHT}px : 0px;
-    background: is_selected ? #1f3319 : #141414;
+    background: is_selected ? Theme.accent.transparentize(0.8) : Theme.bg;
     border-radius: 6px;
     border-width: is_selected ? 1px : 0px;
-    border-color: #76b900;
+    border-color: Theme.accent;
     clip: true;
 
     HorizontalLayout {{
@@ -410,7 +410,7 @@ component AppRow inherits Rectangle {{
 
         Text {{
             text: label;
-            color: #d4d4d4;
+            color: Theme.fg;
             font-size: 13px;
             font-family: "Space Grotesk";
             overflow: elide;
@@ -439,7 +439,7 @@ export component Launcher inherits Window {{
     forward-focus: search_input;
 
     Rectangle {{
-        background: #0d0d0d;
+        background: Theme.bg_dark;
         border-radius: 14px;
         clip: true;
 
@@ -449,7 +449,7 @@ export component Launcher inherits Window {{
 
             Rectangle {{
                 height: {SEARCH_HEIGHT}px;
-                background: #1f1f1f;
+                background: Theme.bg_high;
                 border-radius: 6px;
                 clip: true;
 
@@ -460,14 +460,14 @@ export component Launcher inherits Window {{
 
                     Text {{
                         text: "\u{{F002}}";
-                        color: #76b900;
+                        color: Theme.accent;
                         font-size: 13px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
                     }}
 
                     search_input := TextInput {{
-                        color: #d4d4d4;
+                        color: Theme.fg;
                         font-size: 13px;
                         font-family: "Space Grotesk";
                         vertical-alignment: center;
@@ -529,7 +529,7 @@ pub fn main() -> Result<()> {
     let terminal = Rc::new(detect_terminal());
     let source = build_slint_source(&apps);
 
-    let mut shell = Shell::from_source(source)
+    let mut shell = Shell::from_source(crate::theme::with_theme(&source))
         .surface("Launcher")
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .anchor(AnchorEdges::empty().with_top())
@@ -545,6 +545,7 @@ pub fn main() -> Result<()> {
     let selected_state = Rc::new(RefCell::new(if apps.is_empty() { -1i32 } else { 0i32 }));
 
     shell.with_surface("Launcher", |comp| {
+        crate::theme::apply(comp);
         let weak = comp.as_weak();
         let (apps_q, query_q, selected_q) =
             (apps.clone(), query_state.clone(), selected_state.clone());

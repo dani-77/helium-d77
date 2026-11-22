@@ -109,10 +109,10 @@ component ActionButton inherits Rectangle {{
     callback clicked;
 
     width: 70px;
-    background: is_selected ? #1f3319 : #141414;
+    background: is_selected ? Theme.accent.transparentize(0.8) : Theme.bg;
     border-radius: 8px;
     border-width: is_selected ? 1px : 0px;
-    border-color: #76b900;
+    border-color: Theme.accent;
 
     VerticalLayout {{
         alignment: center;
@@ -120,7 +120,7 @@ component ActionButton inherits Rectangle {{
 
         Text {{
             text: icon;
-            color: #d4d4d4;
+            color: Theme.fg;
             font-size: 20px;
             font-family: "Symbols Nerd Font";
             horizontal-alignment: center;
@@ -128,7 +128,7 @@ component ActionButton inherits Rectangle {{
 
         Text {{
             text: label;
-            color: #999;
+            color: Theme.fg_dim;
             font-size: 10px;
             font-family: "Space Grotesk";
             horizontal-alignment: center;
@@ -150,7 +150,7 @@ export component SessionMenu inherits Window {{
     forward-focus: nav_scope;
 
     Rectangle {{
-        background: #0d0d0d;
+        background: Theme.bg_dark;
         border-radius: 14px;
         clip: true;
 
@@ -201,7 +201,7 @@ pub fn main() -> Result<()> {
     let actions = Rc::new(actions());
     let source = build_slint_source(&actions);
 
-    let mut shell = Shell::from_source(source)
+    let mut shell = Shell::from_source(crate::theme::with_theme(&source))
         .surface("SessionMenu")
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .anchor(AnchorEdges::empty().with_top().with_right())
@@ -211,6 +211,7 @@ pub fn main() -> Result<()> {
         .build()?;
 
     shell.with_surface("SessionMenu", |comp| {
+        crate::theme::apply(comp);
         let actions_c = actions.clone();
         comp.set_callback("action_clicked", move |args| {
             if let Some(Value::Number(n)) = args.first() {

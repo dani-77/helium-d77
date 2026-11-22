@@ -20,6 +20,7 @@
 use std::cell::{Cell, RefCell};
 use std::os::fd::AsRawFd;
 use std::rc::Rc;
+use std::time::Duration;
 
 use helium_wsl::prelude::*;
 use helium_wsl::raw::prelude::{KeyboardInteractivity, ShellControl};
@@ -30,12 +31,20 @@ use crate::apps::launcher::{self, HostedLauncher};
 use crate::apps::osd::{self, OsdAction, OsdState, HIDDEN_SIZE};
 use crate::apps::session::{self, Action};
 use crate::ipc;
+use crate::theme;
+
+/// Every surface helium-shell hosts, for the theme colors.
+const SURFACES: [&str; 4] = ["Bar", "Osd", "SessionMenu", "Launcher"];
+
+/// How often the palette, theme-mix and wallpaper are checked for changes.
+const THEME_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Slint source for every surface helium-shell hosts. The files have no
 /// imports and no names in common, so they can be compiled as one. The
 /// session menu's source is generated from its actions.
 pub fn source(session_actions: &[Action]) -> String {
     [
+        crate::theme::SLINT,
         include_str!("../ui/bar.slint"),
         include_str!("../ui/osd.slint"),
         &session::build_slint_source(session_actions),
@@ -102,6 +111,29 @@ pub fn attach(
     shell: &mut ShellInstance,
     session_actions: Rc<Vec<Action>>,
 ) -> Result<(), HeliumError> {
+    // Colors now, on the first instance of each surface; the first theme tick
+    // reaches every instance (one bar per monitor).
+    let colors = theme::values();
+    for surface in SURFACES {
+        for (prop, value) in &colors {
+            shell.set_global(surface, theme::GLOBAL, prop, value.clone());
+        }
+    }
+    let mut stamp = theme::Stamp::default();
+    shell.on_tick(THEME_INTERVAL, move |ctx| {
+        let now = theme::stamp();
+        if now == stamp {
+            return;
+        }
+        stamp = now;
+        let colors = theme::values();
+        for surface in SURFACES {
+            for (prop, value) in &colors {
+                ctx.set_global(surface, theme::GLOBAL, prop, value.clone());
+            }
+        }
+    })?;
+
     let mut state = OsdState::new();
     shell.on_tick(osd::POLL_INTERVAL, move |ctx| match state.poll() {
         OsdAction::Show(update) => {

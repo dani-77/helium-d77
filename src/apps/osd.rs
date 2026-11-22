@@ -202,16 +202,18 @@ pub fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut shell = Shell::from_source(include_str!("../../ui/osd.slint"))
-        .surface("Osd")
-        .size(HIDDEN_SIZE.0, HIDDEN_SIZE.1)
-        .anchor(AnchorEdges::empty().with_top().with_right())
-        .margin(Margins::new(TOP_MARGIN, SIDE_MARGIN, 0, 0))
-        .layer(Layer::Overlay)
-        .exclusive_zone(0)
-        .keyboard_interactivity(KeyboardInteractivity::None)
-        .build()?;
+    let mut shell =
+        Shell::from_source(crate::theme::with_theme(include_str!("../../ui/osd.slint")))
+            .surface("Osd")
+            .size(HIDDEN_SIZE.0, HIDDEN_SIZE.1)
+            .anchor(AnchorEdges::empty().with_top().with_right())
+            .margin(Margins::new(TOP_MARGIN, SIDE_MARGIN, 0, 0))
+            .layer(Layer::Overlay)
+            .exclusive_zone(0)
+            .keyboard_interactivity(KeyboardInteractivity::None)
+            .build()?;
 
+    shell.with_surface("Osd", crate::theme::apply)?;
     let osd_surface = shell.control().surface("Osd");
     let event_loop = shell.event_loop_handle();
     let mut state = OsdState::new();

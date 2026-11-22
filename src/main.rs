@@ -17,6 +17,7 @@ mod ext_workspace;
 mod ipc;
 mod network;
 mod sysinfo;
+mod theme;
 mod upower;
 mod weather;
 

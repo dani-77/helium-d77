@@ -381,6 +381,9 @@ fn apply_wallpaper_inner(path: &str, retry_startup: bool) {
 
     if applied {
         persist_wallpaper(path);
+        // The colors follow the wallpaper (src/theme.rs); helium-shell picks
+        // the new palette up by itself.
+        crate::theme::ensure_palette(path);
     }
 }
 
@@ -492,7 +495,9 @@ fn thumbnail_for(path: &str, dir: &Path) -> String {
             return path.to_string();
         }
     }
-    thumb.to_str().map_or_else(|| path.to_string(), str::to_string)
+    thumb
+        .to_str()
+        .map_or_else(|| path.to_string(), str::to_string)
 }
 
 /// Thumbnail paths for `images`, in order. Opening the picker used to decode
@@ -579,9 +584,9 @@ component WallpaperCell inherits Rectangle {{
     width: {CELL_W}px;
     height: {CELL_H}px;
     border-radius: 8px;
-    background: #141414;
+    background: Theme.bg;
     border-width: is_current ? 3px : 1px;
-    border-color: is_current ? #76b900 : #333333;
+    border-color: is_current ? Theme.accent : Theme.line;
     clip: true;
 
     Image {{
@@ -604,7 +609,7 @@ component WallpaperCell inherits Rectangle {{
             x: 6px;
             width: parent.width - 12px;
             text: label;
-            color: #d4d4d4;
+            color: Theme.fg;
             font-size: 10px;
             font-family: "Space Grotesk";
             overflow: elide;
@@ -635,7 +640,7 @@ export component Wallpaper inherits Window {{
     forward-focus: scope;
 
     Rectangle {{
-        background: #0d0d0d;
+        background: Theme.bg_dark;
         border-radius: 14px;
         clip: true;
 
@@ -658,7 +663,7 @@ export component Wallpaper inherits Window {{
 
                     Text {{
                         text: "Wallpapers";
-                        color: #d4d4d4;
+                        color: Theme.fg;
                         font-size: 15px;
                         font-family: "Space Grotesk";
                         vertical-alignment: center;
@@ -668,7 +673,7 @@ export component Wallpaper inherits Window {{
 
                     Text {{
                         text: "{count} wallpapers";
-                        color: #999999;
+                        color: Theme.fg_dim;
                         font-size: 11px;
                         font-family: "Space Grotesk";
                         vertical-alignment: center;
@@ -678,13 +683,13 @@ export component Wallpaper inherits Window {{
                         width: 60px;
                         height: 26px;
                         border-radius: 6px;
-                        background: clear_ta.has-hover ? #2a1414 : transparent;
+                        background: clear_ta.has-hover ? Theme.danger.transparentize(0.85) : transparent;
                         border-width: 1px;
-                        border-color: #f7768e;
+                        border-color: Theme.danger;
 
                         Text {{
                             text: "Clear";
-                            color: #f7768e;
+                            color: Theme.danger;
                             font-size: 11px;
                             font-family: "Space Grotesk";
                             horizontal-alignment: center;
@@ -707,7 +712,7 @@ export component Wallpaper inherits Window {{
                         y: {PADDING}px;
                         width: {WINDOW_WIDTH}px - {double_padding}px;
                         text: "{empty_message}";
-                        color: #999999;
+                        color: Theme.fg_dim;
                         font-size: 12px;
                         font-family: "Space Grotesk";
                         horizontal-alignment: center;
@@ -744,7 +749,7 @@ pub fn main(args: &[String]) -> Result<()> {
     let thumbs = thumbnails(&images);
     let source = build_slint_source(&images, &thumbs, initial_index, &dir);
 
-    let mut shell = Shell::from_source(source)
+    let mut shell = Shell::from_source(crate::theme::with_theme(&source))
         .surface("Wallpaper")
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .anchor(AnchorEdges::empty().with_top())
@@ -754,6 +759,7 @@ pub fn main(args: &[String]) -> Result<()> {
         .build()?;
 
     shell.with_surface("Wallpaper", |comp| {
+        crate::theme::apply(comp);
         let weak = comp.as_weak();
         let images_c = images.clone();
         comp.set_callback("wallpaper_clicked", move |args| {

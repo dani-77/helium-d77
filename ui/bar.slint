@@ -18,7 +18,7 @@ component Divider inherits Rectangle {
     width: 1px;
     height: 22px;
     border-width: 1px;
-    border-color: #222;
+    border-color: Theme.line;
 }
 
 // Same rule in every d77 shell: active > urgent > occupied > empty, with
@@ -32,14 +32,14 @@ component WorkspacePill inherits Rectangle {
 
     width: 26px;
     height: 24px;
-    background: active ? #76b900 : urgent ? #d64545 : #1f1f1f;
+    background: active ? Theme.accent : urgent ? Theme.danger : Theme.bg_high;
     border-width: 1px;
-    border-color: active ? #76b900 : urgent ? #d64545 : #333;
+    border-color: active ? Theme.accent : urgent ? Theme.danger : Theme.line;
     opacity: !active && !urgent && !occupied ? 0.4 : 1;
 
     Text {
         text: label;
-        color: active || urgent ? #0a0a0a : #aaa;
+        color: active || urgent ? Theme.bg_dark : Theme.fg_dim;
         font-size: 11px;
         font-family: "Space Mono";
         vertical-alignment: center;
@@ -62,7 +62,7 @@ component StatChip inherits Rectangle {
 
         Text {
             text: icon;
-            color: highlight ? #76b900 : #666;
+            color: highlight ? Theme.accent : Theme.fg_muted;
             font-size: 13px;
             font-family: "Symbols Nerd Font";
             vertical-alignment: center;
@@ -70,7 +70,7 @@ component StatChip inherits Rectangle {
 
         Text {
             text: value;
-            color: highlight ? #d4d4d4 : #666;
+            color: highlight ? Theme.fg : Theme.fg_muted;
             font-size: 12px;
             font-family: "Space Grotesk";
             overflow: elide;
@@ -110,7 +110,7 @@ export component Bar inherits Window {
     callback battery_clicked();
 
     Rectangle {
-        background: #141414;
+        background: Theme.bg;
         border-radius: self.height / 2;
         clip: true;
 
@@ -132,7 +132,7 @@ export component Bar inherits Window {
 
                     Text {
                         text: "\u{F009}";
-                        color: #888;
+                        color: Theme.fg_dim;
                         font-size: 14px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
@@ -166,7 +166,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: "\u{F0C2}";
-                    color: #888;
+                    color: Theme.fg_dim;
                     font-size: 13px;
                     font-family: "Symbols Nerd Font";
                     vertical-alignment: center;
@@ -174,7 +174,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: weather_text;
-                    color: #888;
+                    color: Theme.fg_dim;
                     font-size: 12px;
                     font-family: "Space Grotesk";
                     vertical-alignment: center;
@@ -184,7 +184,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: "\u{F017}";
-                    color: #76b900;
+                    color: Theme.accent;
                     font-size: 13px;
                     font-family: "Symbols Nerd Font";
                     vertical-alignment: center;
@@ -192,7 +192,7 @@ export component Bar inherits Window {
 
                 Text {
                     text: clock_text;
-                    color: #76b900;
+                    color: Theme.accent;
                     font-size: 13px;
                     font-family: "Space Mono";
                     letter-spacing: 1px;
@@ -271,7 +271,7 @@ export component Bar inherits Window {
 
                     Text {
                         text: "\u{F011}";
-                        color: #888;
+                        color: Theme.fg_dim;
                         font-size: 14px;
                         font-family: "Symbols Nerd Font";
                         vertical-alignment: center;
