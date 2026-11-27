@@ -106,6 +106,9 @@ bind it to a key the same way as the launcher above.
 ## Wallpaper picker (`helium-wallpaper`)
 
 A grid-style wallpaper picker, mirroring quickshell-d77's own Wallpaper.qml.
+(quickshell-d77 has since been archived in favour of
+[Utumno](https://github.com/dani-77/utumno), which carries the same modules;
+the references to it in this document are kept as history.)
 Scans `$HOME/Wallpaper` (override with `HELIUM_WALLPAPER_DIR`) for
 `png`/`jpg`/`jpeg`/`webp`/`bmp` files and shows them as a scrollable grid of
 thumbnails. Clicking one applies it immediately by shelling out to whichever
